@@ -4,17 +4,13 @@ source('../source/utils.R')
 source('../source/forecast.R')
 library('patchwork')
 
-sample_beta = function(mean, weight, sims) {
-  rbeta(sims, shape1 = mean*weight, shape2=(1-mean)*weight)
-}
-
-
-sample_gamma = function(mean, sd, sims){
-  beta = mean/sd**2
-  alpha = mean*beta
-  rgamma(sims, shape=alpha, rate=beta)
-}
-
+#' Plots the new admissions/census for a service
+#' @param preds: array, output of predict.model
+#' @param rate: vector, the relative prevalence of the demand
+#' @param los: int, length of stay
+#' @param input: the input from ui
+#' @param color: string, color to plot
+#' @return ggplot of the new admissions/census for a single service.
 plot_demand = function(preds, rate, los, input, color='blue'){
   # Predict admissions
   
@@ -118,8 +114,6 @@ plot_demand = function(preds, rate, los, input, color='blue'){
   
   g1 | g2
 }
-
-
 
 server <- function(input, output) {
 

@@ -1,9 +1,12 @@
+#--------------------------------------------------
+# This file contains a stochastic version of the chime model
+# -------------------------------------------------
 source('source/setup.R')
 source('source/models.R')
 source('source/utils.R')
 source('source/forecast.R')
 
-
+# Mimic the ui I plan to implement in shiny
 input = list(
   # Fixed parameters
   N=10**6,
@@ -30,43 +33,36 @@ input = list(
 )
 
 
-sample_beta = function(mean, weight, sims) {
-  rbeta(sims, shape1 = mean*weight, shape2=(1-mean)*weight)
-}
-sample_gamma = function(mean, sd, sims){
-  beta = mean/sd**2
-  alpha = mean*beta
-  rgamma(sims, shape=alpha, rate=beta)
-}
-
-
-# Sample the random parameters
+#--------------------------------------------------
+# Sample all of the random paramters
+# -------------------------------------------------
 doubling_time = sample_gamma(
   input$doubling_time_mean,
   input$doubling_time_sd,
   input$sims
 )
 
-# Sample the random parameters
 recovery_time = sample_gamma(
   input$recovery_time_mean,
   input$recovery_time_sd,
   input$sims
 )
 
-# This is the hospitalization
 hospitalization_rate = sample_beta(
   input$hospitalization_mean, 
   input$hospitalization_weight,
   input$sims
 ) 
 
-# This is the hospitalization
 contact_reduction = sample_beta(
   input$contact_reduction_mean, 
   input$contact_reduction_weight,
   input$sims
 ) 
+
+#--------------------------------------------------
+# Fit the model
+# -------------------------------------------------
 
 # Initialise the stochastic SIR model
 model = StochasticSIR(
@@ -84,12 +80,29 @@ preds = predict(
   seed=input$seed
 )
 
-# Forcast admissions
-hospital_admissions   = forecast_admissions_v(preds, input$market_share*hospitalization_rate)
-icu_admissions        = forecast_admissions_v(preds, input$market_share*hospitalization_rate*input$icu_relative_rate)
-ventilator_admissions = forecast_admissions_v(preds, input$market_share*hospitalization_rate*input$ventilator_relative_rate)
+plot(model, preds)
 
+#--------------------------------------------------
+# Forecast admissions
+# -------------------------------------------------
+hospital_admissions = forecast_admissions_v(
+  preds, 
+  input$market_share*hospitalization_rate
+)
+
+icu_admissions = forecast_admissions_v(
+  preds, 
+  input$market_share*hospitalization_rate*input$icu_relative_rate
+)
+
+ventilator_admissions = forecast_admissions_v(
+  preds, 
+  input$market_share*hospitalization_rate*input$ventilator_relative_rate
+)
+
+#--------------------------------------------------
 # Forecast census
+# -------------------------------------------------
 hospital_census = forecast_census_v(
   preds, 
   input$market_share*hospitalization_rate,
@@ -108,7 +121,9 @@ ventilator_census = forecast_census_v(
   input$ventilator_los
 )
 
+#--------------------------------------------------
 # Plot admissions
+# -------------------------------------------------
 
 admissions_df = bind_rows(
   data.frame(
