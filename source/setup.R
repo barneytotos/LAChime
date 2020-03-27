@@ -18,7 +18,8 @@ packages = c(
   'purrr',
   'rstan',
   'ggplot2',
-  'patchwork'
+  'patchwork',
+  'shiny'
 )
 
 # Install + source the packages
@@ -28,8 +29,7 @@ packages = c(
 packages = c(
   'dplyr',
   'purrr',
-  'ggplot2',
-  'patchwork'
+  'ggplot2'
 )
 ._ = lapply(packages, library, character.only=TRUE)
 

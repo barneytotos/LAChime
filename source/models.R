@@ -45,9 +45,8 @@ fit.SIR = function(model, ...) {
 #' Predicts the number of S / I / R at times points 
 #' @param model: SIR model instance
 #' @param last_time: int, the last time period to predict
-#' @param social_reduction: function; returns the reduction related to interventions in period t . 
-#' @param sims:  int, number of simulations to perform
-#' @return T x 2 x sims matrix of I / delta_I values
+#' @param ... more arguments that vary by class
+#' @return T x 4 x sims matrix of S / I / R / delta values
 predict.SIR = function(model, last_time, social_reduction = function(x) {1}, sims=1, ...) {
   stopifnot(0 < last_time)
   stop(sprintf("Predict method not implemented for model (name=%s)", model$name))
@@ -56,7 +55,9 @@ predict.SIR = function(model, last_time, social_reduction = function(x) {1}, sim
 
 #' Plots the number of infected at time points (future/past)
 #' @param model: SIR model instance
-#' @param preds: array of dim (times, 2, sims); output from the predict method
+#' @param preds: array of dim (times, 4, sims); output from the predict method
+#' @param times: vector of times at which infection occurs OR NULL
+#' @param infected: vector of infection counts of NULL
 #' @return ggplot showing the # of infected at each time point. Or maybe something else
 plot.SIR = function(model, preds, times=NA, infected=NA, ...) {
   
@@ -65,11 +66,6 @@ plot.SIR = function(model, preds, times=NA, infected=NA, ...) {
 
   # Plot the currently infected
   g1 = ggplot() +
-    geom_line(
-      data=plot_data,
-      aes(x=t, group=sim, y=infected/model$N, color = 'total'),
-      alpha = sqrt(1/sims)
-    ) +
     geom_line(
       data=plot_data,
       aes(x=t, group=sim, y=delta/model$N, color = 'new'),
@@ -154,7 +150,8 @@ BasicSIR = function(N, I0, doubling_time, recovery_time){
 #' Predicts the number of Infected / change in infected at each time points 
 #' @param model: SIR model instance
 #' @param last_time: int, the last time period to predict
-#' @return T x 2 x sims matrix of I / delta_I values
+#' @param contact_reduction: float in (0, 1) this is the social parameters
+#' @return T x4 matrix of S / I / R / delta values
 predict.BasicSIR = function(model, last_time, contact_reduction=0) {
 
   #' Initialize the populations at time 
@@ -237,10 +234,8 @@ StochasticSIR = function(N, I0, doubling_time, recovery_time){
 #' Predicts the number of Infected / change in infected at each time points 
 #' @param model: SIR model instance
 #' @param last_time: int, the last time period to predict
-#' @param social_reduction: function; returns the reduction related to interventions in period t . 
-#' @param detection_probability: real in 0, 1 indicating the proportion of infected patients that are observed
 #' @param seed: used to control the randomness in the output
-#' @return T x 2 x sims matrix of I / delta_I values
+#' @return T x 4 x sims matrix of S / I / R / delta values
 predict.StochasticSIR = function(model, last_time, contact_reduction, seed=sample.int(.Machine$integer.max, 1)) {
   
   set.seed(seed)
@@ -297,7 +292,7 @@ predict.StochasticSIR = function(model, last_time, contact_reduction, seed=sampl
     preds[t+1, 4, ] = delta_in
 
   }
-  
+  colnames(preds) = c('S', 'I', 'R', 'new')
   return(preds)
 }
 

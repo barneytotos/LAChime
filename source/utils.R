@@ -12,7 +12,7 @@ pred_to_df <- function(preds){
   sims = dim(preds)[3]
   
   # Convenienve function
-  wrapper = function(s) data.frame(t=times, sim=s, infected=preds[,1,s], delta=preds[,2,s])
+  wrapper = function(s) data.frame(t=times, sim=s, infected=preds[,3,s], delta=preds[,4,s])
   map(1:sims, wrapper) %>% bind_rows()
   
 }

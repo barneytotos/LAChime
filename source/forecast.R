@@ -4,13 +4,10 @@
 #' @param length_of_stay: how many days someone stays in the ICU
 #' @return vector
 forecast_census = function(preds, rate, length_of_stay){
-  
-  # This is a dumb way to do this
   admits = preds[-1, 4, ] * rate
   admit_in = admits %>% cumsum()
   admit_out = c(rep(0, length_of_stay), head(admits %>% cumsum(), -length_of_stay))
   admit_in - admit_out
-  
 }
 
 
@@ -19,34 +16,26 @@ forecast_census = function(preds, rate, length_of_stay){
 #' @param rate: the demand for the service relative to the total infected population
 #' @return vector
 forecast_admissions = function(preds, rate){
-  
-  # This is a dumb way to do this
   preds[-1, 4, ] * rate
-
 }
 
 
 #' Uses the chime rate/LOS model to forcast new admits to a service
-#' @param preds: a single prediction from the sir model
+#' @param preds: an array of predictions from an sir model
 #' @param rate: the demand for the service relative to the total infected population
 #' @return vector
 forecast_admissions_v = function(preds, rate){
-  
   # This is a dumb way to do this
   apply(preds[-1, 4, ], 1, function(x) rbinom(n=length(rate), size=ceiling(x), prob = rate)) %>% t
-  
 }
 
 
-#' Uses the chime rate/LOS model to forcast total demand
-#' @param preds: a single prediction from the sir model
+#' Uses the chime rate/LOS model to forcast total demand for multiple simulations
+#' @param admits: output of forecast_admissions_v
 #' @param rate: the demand for the service relative to the total infected population
 #' @param length_of_stay: how many days someone stays in the ICU
-#' @return vector
+#' @return matrix of census/sims
 forecast_census_v = function(admits, rate, length_of_stay){
-  
-  # This is a dumb way to do this
-  #admits = apply(preds[-1, 4, ], 1, function(x) x*rate) %>% t
   
   admit_in = apply(admits, 2, cumsum)
   zeros = matrix(0, nrow=length_of_stay, ncol = length(rate))
@@ -57,7 +46,7 @@ forecast_census_v = function(admits, rate, length_of_stay){
 }
 
 
-
+# I don't think this is used anywhere .. may delet
 plot_forecast = function(model, infection_data, future_days, rate, length_of_stay, detection_probability){
 
   
