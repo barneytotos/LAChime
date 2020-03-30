@@ -69,12 +69,15 @@ expose_stan_functions(stan_model('../models/bayes_seir.stan', auto_write = TRUE)
 
 server <- function(input, output) {
 
-  ########################################
-  ## This runs the model
-  ########################################
-  PREDS = eventReactive(input$runButton, {
+  #-------------------------------------------
+  # Run the model and update the predictions
+  #-------------------------------------------
+  
+  MODEL = eventReactive(input$runButton, {
     
     # This bit will be come reactive to the data
+    set.seed(1337)
+    
     df = lax_data
     t0 = max(nrow(df), 14)
     
@@ -100,15 +103,23 @@ server <- function(input, output) {
     
     print(model$fit, pars =c('exposure_time', 'recovery_time', 'doubling_time', 'phi'))
 
-    lag = as.numeric(input$lag)
-    social = as.numeric(input$social)
+    model
+  })
+  
+  # "updates the things
+  PREDS = eventReactive(input$runButton, {
     
+    model = MODEL()
+    
+    # Some timing and social distancing things
+    lag = as.numeric(input$lag)
+    social = 1-as.numeric(input$social)
     full_social = 19
     start_social = 12
     
     contact_reduction = function(x) case_when(
       x <= start_social + lag ~ 1,
-      x <= full_social + lag ~ 1 - (1-(1-social)) * (x-(start_social+lag)) / 7,
+      x <= full_social + lag ~ 1 - (1-social) * (x-(start_social+lag)) / 7,
       TRUE ~ social
     )
     
@@ -159,11 +170,13 @@ server <- function(input, output) {
       t0 = as.numeric(lubridate::today()-lubridate::mdy('2/29/2020')),
       samples = extract(model$fit, pars = c('recovery_time', 'doubling_time', 'exposure_time'))
     )
+    
+    
   })
   
-  #--------------------------------------
+  #-------------------------------------------
   # Plots by demand type
-  #--------------------------------------
+  #-------------------------------------------
   
   output$icu <- renderImage({
     
