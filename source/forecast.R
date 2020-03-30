@@ -21,68 +21,35 @@ forecast_admissions = function(preds, rate){
 
 
 #' Uses the chime rate/LOS model to forcast new admits to a service
+#' New admissions are drawn from a binomial distribution 
 #' @param preds: an array of predictions from an sir model
-#' @param rate: the demand for the service relative to the total infected population
-#' @return vector
+#' @param rate: vector, lenght=# sims, the demand for the service relative to the total infected population
+#' @return T x S (Day / Sims) matrix of new admisions 
 forecast_admissions_v = function(preds, rate){
   # This is a dumb way to do this
   apply(preds[-1, 4, ], 1, function(x) rbinom(n=length(rate), size=ceiling(x), prob = rate)) %>% t
 }
 
 
+#' Uses the chime rate/LOS model to forcast new admits to a service
+#' New admissions are drawn from a negative binomial with dispersion parameterphi
+#' @param preds: an array of predictions from an sir model
+#' @param rate: vector, lenght=# sims, the demand for the service relative to the total infected population
+#' @param phi: vector, negative binomial dispersion parameter for each sim
+#' @return T x S (Day / Sims) matrix of new admisions 
+forecast_admissions_nb = function(preds, rate, phi){
+  # This is a dumb way to do this
+  apply(preds[-1, 4, ], 1, function(x) neg_binom_rng(x*rate, phi)) %>% t
+}
+
 #' Uses the chime rate/LOS model to forcast total demand for multiple simulations
-#' @param admits: output of forecast_admissions_v
-#' @param rate: the demand for the service relative to the total infected population
+#' @param admits: T x S (Day / Sims) matrix of new admisions, output of forecast_admissions_v
 #' @param length_of_stay: how many days someone stays in the ICU
-#' @return matrix of census/sims
-forecast_census_v = function(admits, rate, length_of_stay){
-  
+#' @return matrix of TxS matrix (days / sims) showing the current total demand
+forecast_census_v = function(admits, length_of_stay){
   admit_in = apply(admits, 2, cumsum)
-  zeros = matrix(0, nrow=length_of_stay, ncol = length(rate))
+  zeros = matrix(0, nrow=length_of_stay, ncol = dim(admits)[2])
   
   admit_out = rbind(zeros, head(admit_in, -length_of_stay))
   admit_in - admit_out
-  
-}
-
-
-# I don't think this is used anywhere .. may delet
-plot_forecast = function(model, infection_data, future_days, rate, length_of_stay, detection_probability){
-
-  
-  # Do the demand forecasting
-  preds = predict(model, future_days+nrow(infection_data), detection_probability=detection_probability, sims=1000)
-  out = forecast_rate_los(preds, rate, length_of_stay)
-  
-  # Make a data frame
-  forecast_data = data.frame(
-    ts = 2:(future_days+nrow(infection_data))-nrow(infection_data),
-    middle = rowMeans(out),
-    lower = apply(out, 1, quantile, probs=0.025),
-    upper = apply(out, 1, quantile, probs=0.975)
-  )
-  
-  # Make a plot
-  ggplot(
-      data=forecast_data,
-      aes(x=ts)
-    ) +
-    geom_line(
-      aes(y=middle)
-    ) +
-    geom_ribbon(
-      aes(ymin=lower, ymax=upper),
-      alpha = 0.1,
-      fill ='red'
-    ) +
-    scale_x_continuous(
-      name = 'Days from today',
-      limits = c(0, future_days),
-      breaks = seq(0, future_days, 7)
-    ) +
-    scale_y_continuous(
-      name = 'Predicted demand'
-    ) +
-    theme_bw()
-  
 }

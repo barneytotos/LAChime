@@ -271,9 +271,6 @@ predict.StochasticSIR = function(model, last_time, contact_reduction, seed=sampl
     I = I + delta_in - delta_out
     R = R + delta_out
     
-    # Some error handling that presumably comes 
-    # From the discretezation
-    
     # Handle the cases where things dip below 0
     S[S<0]=0
     I[I<0]=0
@@ -306,14 +303,33 @@ predict.StochasticSIR = function(model, last_time, contact_reduction, seed=sampl
 #' Uses a discete process to approximate the SIR model
 #' @param N: int, size of the total population
 #' @param I0: the initial number of infected people.
-BayesSIR = function(N, I0, stan_fname='models/basic_sir.stan'){
+BayesSIR = function(
+    N, 
+    I0_mean,
+    I0_sd,
+    recovery_mean,
+    recovery_sd,
+    doubling_mean,
+    doubling_sd,
+    stan_fname='models/bayes_sir.stan'
+  ){
+  
+  prior = list(
+    I0_mean=I0_mean,
+    I0_sd=I0_sd,
+    recovery_mean=recovery_mean,
+    recovery_sd=recovery_sd,
+    doubling_mean=doubling_mean,
+    doubling_sd=doubling_sd
+  )
   
   # initialize the S3 class
   SIR(
     N,
-    I0,
+    I0=NULL,
     name='bayes',
     SM = stan_model(stan_fname, auto_write = TRUE),
+    prior = prior,
     fit=NULL,
     class="BayesSIR"
   )
@@ -321,27 +337,39 @@ BayesSIR = function(N, I0, stan_fname='models/basic_sir.stan'){
 
 
 # Fit function for the bayes approach
-fit.BayesSIR = function(model, times, infected, p=0.25) {
+fit.BayesSIR = function(model, times, new_cases, p=0.25) {
 
+  if (length(p) == 1) p = rep(p, length(times))
+  
   # Get the stan data
   stan_data = list(
+    # Meta data
     T = length(times),
     N = model$N,
-    times = times,
-    infected = round(infected),
     last_time = max(times),
-    p = p
+    
+    # Data data
+    times = times,
+    ys = round(new_cases),
+    ps = p
   )
   
   model$fit = sampling(
     model$SM, 
-    stan_data,
+    c(stan_data, model$prior),
     iter=2*10**3,
     warmup=10**3,
     chains=1,
     cores=1,
-    control = list('adapt_delta'=0.9),
-    init = list(list('recovery_time'=14, 'doubling_time'=6, 'I0'=min(infected)))
+    thin=1,
+    control= list(
+      'adapt_delta'=0.99
+    ),
+    init = list(list(
+      'recovery_time'=model$prior$recovery_mean, 
+      'doubling_time'=model$prior$doubling_mean, 
+      'I0'=model$prior$I0_mean
+    ))
   )
   
   return(model)
@@ -356,31 +384,37 @@ fit.BayesSIR = function(model, times, infected, p=0.25) {
 #' @param detection_probability: real in 0, 1 indicating the proportion of infected patients that are observed
 #' @param seed: used to control the randomness in the output
 #' @return T x 2 x sims matrix of I / delta_I values
-predict.BayesSIR = function(model, last_time, social_reduction = function(x) {1}, 
-                            detection_probability=1, sims, seed=sample.int(.Machine$integer.max, 1)) {
-  
+predict.BayesSIR = function(
+    model, 
+    last_time,
+    contact_reduction = function(x) {1}, 
+    seed=sample.int(.Machine$integer.max, 1)
+  ) {
+
   set.seed(seed)
-  
-  #' Initialize the populations at time 0
-  inds = sample(1000, sims, replace = FALSE)
-  
-  I0 = extract(model$fit)$I0[inds]
-  S = model$N - I0
-  I = I0
+
+  # Set the initial conditions
+  S = model$N
+  I = extract(model$fit)$I0
   R = 0
+  NN = S + I + R
   
   #' Compute the key parameters
-  gamma = extract(model$fit)$gamma[inds]
-  beta = extract(model$fit)$beta[inds] 
-    
-  #' Intialize the storage
-  preds = array(dim=c(last_time, 2, sims))
+  gamma = extract(model$fit)$gamma
+  beta = extract(model$fit)$beta
   
+  #' Intialize the storage
+  preds = array(dim=c(last_time+1, 4, 10**3))
+  preds[1, 1, ] = S
+  preds[1, 2, ] = I
+  preds[1, 3, ] = R
+  preds[1, 4, ] = 0
+
   # Do the numerical integration
   for (t in 1:last_time){
     
     # Compute the differences
-    delta_in = beta*S*I/model$N*social_reduction(t)
+    delta_in = beta*S*I/model$N*contact_reduction(t)
     delta_out = gamma*I
     
     # Update the counts
@@ -403,14 +437,261 @@ predict.BayesSIR = function(model, last_time, social_reduction = function(x) {1}
     R = R * scale
     
     # Add the noise
-    props =  detection_probability
-    preds[t, 1, ] = I * props
-    preds[t, 2, ] = delta_in * props
+    preds[t+1, 1, ] = S
+    preds[t+1, 2, ] = I
+    preds[t+1, 3, ] = R
+    preds[t+1, 4, ] = delta_in
     
   }
   
   return(preds)
 }
+
+
+
+
+###########################################################
+## Bayes SIR class 
+###########################################################
+#' The is the basic SIR model but the parameters are may be randomly sampled from distributions.
+#' In addition, the observed infections are modeled as binomial noise: I_obs ~ Bin(I, p) 
+#' Uses a discete process to approximate the SIR model
+#' @param N: int, size of the total population
+#' @param I0: the initial number of infected people.
+BayesSIR = function(
+  N, 
+  I0_mean,
+  I0_sd,
+  recovery_mean,
+  recovery_sd,
+  doubling_mean,
+  doubling_sd,
+  stan_fname='models/bayes_sir.stan'
+){
+  
+  prior = list(
+    I0_mean=I0_mean,
+    I0_sd=I0_sd,
+    recovery_mean=recovery_mean,
+    recovery_sd=recovery_sd,
+    doubling_mean=doubling_mean,
+    doubling_sd=doubling_sd
+  )
+  
+  # initialize the S3 class
+  SIR(
+    N,
+    I0=NULL,
+    name='bayes',
+    SM = stan_model(stan_fname, auto_write = TRUE),
+    prior = prior,
+    fit=NULL,
+    class="BayesSIR"
+  )
+}
+
+
+# Fit function for the bayes approach
+fit.BayesSIR = function(model, times, new_cases, p=0.25) {
+  
+  if (length(p) == 1) p = rep(p, length(times))
+  
+  # Get the stan data
+  stan_data = list(
+    # Meta data
+    T = length(times),
+    N = model$N,
+    last_time = max(times),
+    
+    # Data data
+    times = times,
+    ys = round(new_cases),
+    ps = p
+  )
+  
+  model$fit = sampling(
+    model$SM, 
+    c(stan_data, model$prior),
+    iter=2*10**3,
+    warmup=10**3,
+    chains=1,
+    cores=1,
+    thin=1,
+    control= list(
+      'adapt_delta'=0.99
+    ),
+    init = list(list(
+      'recovery_time'=model$prior$recovery_mean, 
+      'doubling_time'=model$prior$doubling_mean, 
+      'I0'=model$prior$I0_mean
+    ))
+  )
+  
+  return(model)
+  
+}
+
+###########################################################
+## Bayes SIR class 
+###########################################################
+#' The is the basic SIR model but the parameters are may be randomly sampled from distributions.
+#' In addition, the observed infections are modeled as binomial noise: I_obs ~ Bin(I, p) 
+#' Uses a discete process to approximate the SIR model
+#' @param N: int, size of the total population
+#' @param I0: the initial number of infected people.
+BayesSEIR = function(
+    N, 
+    exposure_mean,
+    exposure_sd,
+    recovery_mean,
+    recovery_sd,
+    doubling_mean,
+    doubling_sd,
+    stan_fname='models/bayes_seir.stan'
+  ){
+    
+  prior = list(
+    exposure_mean=exposure_mean,
+    exposure_sd=exposure_sd,
+    recovery_mean=recovery_mean,
+    recovery_sd=recovery_sd,
+    doubling_mean=doubling_mean,
+    doubling_sd=doubling_sd
+  )
+  
+  # initialize the S3 class
+  SIR(
+    N,
+    I0=NULL,
+    name='bayes',
+    SM = stan_model(stan_fname, auto_write = TRUE),
+    prior = prior,
+    fit=NULL,
+    class="BayesSEIR"
+  )
+}
+
+
+# Fit function for the bayes approach
+fit.BayesSEIR = function(model, times, new_cases, p=0.25) {
+  
+  if (length(p) == 1) p = rep(p, length(times))
+  
+  # Get the stan data
+  stan_data = list(
+    # Meta data
+    T = length(times),
+    N = model$N,
+    last_time = max(times),
+    
+    # Data data
+    times = times,
+    ys = round(new_cases),
+    ps = p
+  )
+  
+  model$fit = sampling(
+    model$SM, 
+    c(stan_data, model$prior),
+    iter=2*10**3,
+    warmup=10**3,
+    chains=1,
+    cores=1,
+    thin=1,
+    control= list(
+      'adapt_delta'=0.99
+    ),
+    init = list(list(
+      'recovery_time'=model$prior$recovery_mean, 
+      'doubling_time'=model$prior$doubling_mean, 
+      'I0'=model$prior$I0_mean
+    ))
+  )
+  
+  return(model)
+  
+}
+
+
+
+#' Predicts the number of Infected / change in infected at each time points 
+#' @param model: SIR model instance
+#' @param last_time: int, the last time period to predict
+#' @param social_reduction: function; returns the reduction related to interventions in period t . 
+#' @param detection_probability: real in 0, 1 indicating the proportion of infected patients that are observed
+#' @param seed: used to control the randomness in the output
+#' @return T x 2 x sims matrix of I / delta_I values
+predict.BayesSEIR = function(
+    model, 
+    last_time,
+    contact_reduction = function(x) {1}, 
+    seed=sample.int(.Machine$integer.max, 1)
+  ) {
+  
+  set.seed(seed)
+  
+  # Set the initial conditions
+  S = model$N
+  E = extract(model$fit)$E0
+  I = 0
+  R = 0
+  NN = S + E + I + R
+  
+  #' Compute the key parameters
+  alpha = extract(model$fit)$alpha
+  gamma = extract(model$fit)$gamma
+  beta = extract(model$fit)$beta
+  
+  #' Intialize the storage
+  preds = array(dim=c(last_time+1, 4, 10**3))
+  preds[1, 1, ] = S
+  preds[1, 2, ] = 0
+  preds[1, 3, ] = 0
+  preds[1, 4, ] = 0
+  
+  # Do the numerical integration
+  for (t in 1:last_time){
+    
+    # Compute the differences
+    delta_exp = beta*S*I/model$N*contact_reduction(t)
+    delta_inf = alpha * E
+    delta_rec = gamma*I
+    
+    # Update the counts
+    S = S - delta_exp
+    E = E + delta_exp - delta_inf
+    I = I + delta_inf - delta_rec
+    R = R + delta_rec
+    
+    # Some error handling that presumably comes 
+    # From the discretezation
+
+    # Handle the cases where things dip below 0
+    S[S<0]=0
+    E[E<0]=0
+    I[I<0]=0
+    R[R<0]=0
+    
+    # Make sure the still scale to N
+    scale = model$N / (S+E+I+R)
+    S = S * scale
+    E = E * scale
+    I = I * scale
+    R = R * scale
+    
+    # Add the noise
+    preds[t+1, 1, ] = S
+    preds[t+1, 2, ] = I
+    preds[t+1, 3, ] = R
+    preds[t+1, 4, ] = delta_inf
+    
+  }
+  
+  return(preds)
+}
+
+
+
 
 
 

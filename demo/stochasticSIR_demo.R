@@ -80,8 +80,6 @@ preds = predict(
   seed=input$seed
 )
 
-plot(model, preds)
-
 #--------------------------------------------------
 # Forecast admissions
 # -------------------------------------------------
@@ -104,21 +102,18 @@ ventilator_admissions = forecast_admissions_v(
 # Forecast census
 # -------------------------------------------------
 hospital_census = forecast_census_v(
-  preds, 
-  input$market_share*hospitalization_rate,
-  input$hospital_los
+  hospital_admissions, 
+  length_of_stay = input$hospital_los
 )
 
 icu_census = forecast_census_v(
-  preds, 
-  input$market_share*hospitalization_rate*input$icu_relative_rate,
-  input$icu_los
+  icu_admissions, 
+  length_of_stay = input$hospital_los
 )
 
 ventilator_census = forecast_census_v(
-  preds, 
-  input$market_share*hospitalization_rate*input$ventilator_relative_rate,
-  input$ventilator_los
+  ventilator_admissions, 
+  length_of_stay = input$hospital_los
 )
 
 #--------------------------------------------------

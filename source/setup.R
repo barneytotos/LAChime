@@ -19,7 +19,8 @@ packages = c(
   'rstan',
   'ggplot2',
   'patchwork',
-  'shiny'
+  'shiny',
+  'lubridate'
 )
 
 # Install + source the packages
