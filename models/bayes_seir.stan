@@ -16,7 +16,7 @@ functions {
       
       real S = N;
       real E = E0;
-      real I = 0;
+      real I = 0; 
       real R = 0;
       real NN = N + E0;
       
@@ -26,6 +26,8 @@ functions {
       real scale;
       
       // Do the updates
+      // Run a time updates at time -2, -1, 0 to add to 
+      // The infected population
       for (t in 1:last_time){
         
         //  Compute the differences
@@ -52,7 +54,8 @@ functions {
         I = I * scale;
         R = R * scale;
         
-        delta[t] = delta_exp;
+        if (t > 0) delta[t] = delta_inf;
+        
       }
       return delta;
   }
@@ -114,7 +117,7 @@ transformed data {
   real<lower=0> doubling_a = doubling_mean*doubling_b;
 
   real<lower=0> E0_mean=100;
-  real<lower=0> E0_sd=100;
+  real<lower=0> E0_sd=1000;
   
 }
 
@@ -122,8 +125,8 @@ parameters {
   real<lower=0> doubling_time;
   real<lower=0> exposure_time;
   real<lower=0> recovery_time;
-  real<lower=0> E0;
   real<lower=0> phi;
+  real<lower=0> E0;
 }
 
 transformed parameters{

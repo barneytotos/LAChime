@@ -13,14 +13,14 @@ ui <- fluidPage(
       h3("Assumption", style = "color:blue"),
       numericInput(
         "p", 
-        "Proportion of newly infected people that test positive", 
+        "Proportion of newly exposed people that eventually test positive", 
         value = 0.1,
         min = 0.0001,
         max = 1
       ),
       numericInput(
         "lag", 
-        "Lag between initial infection and confirmed infection", 
+        "Time from exposure to positive test result counted by DPH", 
         value = 13,
         min = 0.0,
         max = 30
@@ -28,9 +28,9 @@ ui <- fluidPage(
       numericInput(
         "social", 
         "Relative reduction in transmission (social distancing)", 
-        value = 1,
-        min = 0.001,
-        max = 1
+        value = 0,
+        min = 0.00,
+        max = 0.999999
       ),
       #################################      ## Demand parameters Parameters
       ##################################

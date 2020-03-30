@@ -39,7 +39,7 @@ forecast_admissions_v = function(preds, rate){
 #' @return T x S (Day / Sims) matrix of new admisions 
 forecast_admissions_nb = function(preds, rate, phi){
   # This is a dumb way to do this
-  apply(preds[-1, 4, ], 1, function(x) neg_binom_rng(x*rate, phi)) %>% t
+  apply(preds[-1, 4, ], 1, function(x) neg_binom_rng(x*rate+1e-6, phi)) %>% t
 }
 
 #' Uses the chime rate/LOS model to forcast total demand for multiple simulations
