@@ -53,6 +53,19 @@ predict.SIR = function(model, last_time, social_reduction = function(x) {1}, sim
 }
 
 
+#' Uses the chime rate/LOS model to forcast new admits to a service
+#' New admissions are drawn from a negative binomial with dispersion parameterphi
+#' @param model: SIR model instance
+#' @param rate: vector, lenght=# sims, the demand for the service relative to the total infected population
+#' @return T x S (Day / Sims) matrix of new admisions 
+forecast_new = function(model, rate,  ...) UseMethod("forecast_new")  
+
+  
+forecast_new.SIR = function(model, rate,  ...) {
+  stopifnot(0 < last_time)
+  stop(sprintf("Predict method not implemented for model (name=%s)", model$name))
+}
+
 #' Plots the number of infected at time points (future/past)
 #' @param model: SIR model instance
 #' @param preds: array of dim (times, 4, sims); output from the predict method
@@ -532,7 +545,7 @@ fit.BayesSIR = function(model, times, new_cases, p=0.25) {
 }
 
 ###########################################################
-## Bayes SIR class 
+## Bayes SEIR class 
 ###########################################################
 #' The is the basic SIR model but the parameters are may be randomly sampled from distributions.
 #' In addition, the observed infections are modeled as binomial noise: I_obs ~ Bin(I, p) 
@@ -633,7 +646,7 @@ predict.BayesSEIR = function(
   # Set the initial conditions
   S = model$N
   E = extract(model$fit)$E0
-  I = 0
+  I = extract(model$fit)$E0 * extract(model$fit)$alpha
   R = 0
   NN = S + E + I + R
   
@@ -643,14 +656,10 @@ predict.BayesSEIR = function(
   beta = extract(model$fit)$beta
   
   #' Intialize the storage
-  preds = array(dim=c(last_time+1, 4, 10**3))
-  preds[1, 1, ] = S
-  preds[1, 2, ] = 0
-  preds[1, 3, ] = 0
-  preds[1, 4, ] = 0
-  
+  preds = array(dim=c(last_time, 6, 10**3))
+
   # Do the numerical integration
-  for (t in 1:last_time){
+  for (t in -14:last_time){
     
     # Compute the differences
     delta_exp = beta*S*I/model$N*contact_reduction(t)
@@ -680,18 +689,31 @@ predict.BayesSEIR = function(
     R = R * scale
     
     # Add the noise
-    preds[t+1, 1, ] = S
-    preds[t+1, 2, ] = I
-    preds[t+1, 3, ] = R
-    preds[t+1, 4, ] = delta_inf
-    
+    if (t>0){
+      preds[t, 1, ] = S
+      preds[t, 2, ] = E
+      preds[t, 3, ] = I
+      preds[t, 4, ] = R
+      preds[t, 5, ] = delta_exp
+      preds[t, 6, ] = delta_inf
+    }
   }
   
+  colnames(preds) = c('S', 'E', 'I', 'R', 'delta_E', 'delta_I')
   return(preds)
 }
 
 
-
+#' Uses the chime rate/LOS model to forcast new admits to a service
+#' New admissions are drawn from a negative binomial with dispersion parameterphi
+#' @param model: SIR model instance
+#' @param rate: vector, lenght=# sims, the demand for the service relative to the total infected population
+#' @return T x S (Day / Sims) matrix of new admisions 
+forecast_new.BayesSEIR = function(model, preds, rate) {
+  
+  apply(preds[, 5, ], 1, function(x) rnbinom(n=10**3, mu=x*rate+1e-6, size=extract(model$fit)$phi)) %>% t
+  
+}
 
 
 

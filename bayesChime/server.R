@@ -6,86 +6,95 @@ source('../source/plots.R')
 
 library('patchwork')
 library('rstan')
-library(gridExtra)
-library(grid)
-library(gtable)
 library('lubridate')
 
-# Load the data
-lax_data = readr::read_csv('../data/lax_county_data_26MAR20.csv') %>%
-  mutate(date = as.Date(day)) %>%
-  select(-day)
 
-
-
-# Read the files
-files = list.files('../data/la_hospital/', full.names = TRUE)
-print(files)
-df = data.frame()
-for (f in files) df = bind_rows(df, readr::read_csv(f) %>% mutate(Date = mdy(Date)))
-
-#--------------------------------------------------
-# Some date stuff
-# -------------------------------------------------
-day0 = mdy('2/29/2020')
-t0 = as.numeric(today() - day0)
-
-#--------------------------------------------------
-# transform the data
-# -------------------------------------------------
-
-
-# Add a time delta component
-df = df %>% mutate(
-  t_real = as.numeric(Date - day0)
-)
-
-# Estimate the number of new cases each day
-model_df = df %>% 
-  filter(Category %in% c('24PUI_med.surg', '24PUI_SDU', '24PUI_ICU')) %>%
-  mutate(
-    weight = 0.25
-  ) %>%
-  group_by(
-    Date
-  ) %>%
-  mutate(
-    avg_market_share = mean(Marketshare),
-    estimated_cases = Value * Marketshare / avg_market_share * weight
-  ) %>%
-  group_by(
-    Date,
-    avg_market_share,
-    t_real
-  ) %>%
-  summarise(
-    estimated_cases = sum(estimated_cases)
-  )
-
-
-
-expose_stan_functions(stan_model('../models/bayes_seir.stan', auto_write = TRUE))
-
+# --------------------------------
+# Global variables
+# -------------------------------
+START_SOCIAL = mdy('3/12/2020')
+FULL_SOCIAL = mdy('3/19/2020')
+dir.create('plots', showWarnings = FALSE)
 
 server <- function(input, output) {
 
   #-------------------------------------------
   # Run the model and update the predictions
-  #-------------------------------------------
+  #------------------------------------------
+  DF = eventReactive(input$runButton, {
+    
+    # Load the data
+    if (input$dataSet=='dph'){
+      
+      # DPH data with not problems
+      df <- readr::read_csv('../data/lax_county_data_26MAR20.csv') %>% 
+        mutate(
+          date = mdy(day),
+          time = as.numeric(date - min(date)) + 1,
+          lag_date = date - days(input$lag),
+          lag_time = as.numeric(lag_date - min(lag_date)) + 1
+        )
+        
+    } else if (input$dataSet=='dph_last_10'){
+      
+      # DOF data with only the last 10
+      df <- readr::read_csv('../data/lax_county_data_26MAR20.csv') %>% 
+        mutate(
+          date = mdy(day),
+          time = as.numeric(date - min(date)) + 1
+        ) %>% 
+        tail(10) %>%
+        mutate(
+          lag_date = date - days(input$lag),
+          lag_time = as.numeric(lag_date - min(lag_date)) + 1
+        )
+    } else if (input$dataSet=='ems'){
+      
+      df <- readr::read_csv('../data/la_ems_30MAR20.csv') %>%
+        mutate(
+          date = mdy(day),
+          time = as.numeric(date - min(date)) + 1,
+          lag_date = date - days(input$lag),
+          lag_time = as.numeric(lag_date - min(lag_date)) + 1
+        )
+      
+    } else if (input$dataSet=='pui'){
+      
+      df <- readr::read_csv('../data/joe_ems_31MAR20.csv') %>%
+        mutate(
+          date = mdy(day),
+          time = as.numeric(date - min(date)) + 1,
+          lag_date = date - days(input$lag),
+          lag_time = as.numeric(lag_date - min(lag_date)) + 1
+        )
+    } else {
+      stop('DATA SET NOT SPECIFIED')
+    }
+
+    
+    day0 = min(df$lag_date) - days(1)
+    
+    # Setup global time variables
+    list(
+      df = df,
+      day0 = day0,
+      t0 = as.numeric(today() - day0)
+    )
+    
+  })
   
   MODEL = eventReactive(input$runButton, {
     
     # This bit will be come reactive to the data
     set.seed(1337)
     
-    df = lax_data
-    t0 = max(nrow(df), 14)
+    df = DF()$df
     
     # Init the model
     model = BayesSEIR(
       10**7,
-      exposure_mean=input$exposure_mean,
-      exposure_sd=input$exposure_sd,
+      exposure_mean=2.5,
+      exposure_sd=1.5,
       recovery_mean=input$recovery_mean,
       recovery_sd=input$recovery_sd,
       doubling_mean=input$doubling_mean,
@@ -96,8 +105,8 @@ server <- function(input, output) {
     # Fit 
     model = fit(
       model, 
-      df$time, 
-      df$new_cases,
+      df %>% pull(lag_time), 
+      df %>% pull(new_cases),
       p = input$p
     )
     
@@ -109,55 +118,57 @@ server <- function(input, output) {
   # "updates the things
   PREDS = eventReactive(input$runButton, {
     
+    # Get the new data
+    # @todo: unfuck this section
+    df = DF()$df
+    day0 = min(df$lag_date) - days(1)
+    t0 = as.numeric(today() - day0)
     model = MODEL()
     
-    # Some timing and social distancing things
-    lag = as.numeric(input$lag)
+    # Social distancing
+    start = as.numeric(START_SOCIAL - day0)
+    stop = as.numeric(FULL_SOCIAL - day0)
     social = 1-as.numeric(input$social)
-    full_social = 19
-    start_social = 12
     
     contact_reduction = function(x) case_when(
-      x <= start_social + lag ~ 1,
-      x <= full_social + lag ~ 1 - (1-social) * (x-(start_social+lag)) / 7,
+      x <= start ~ 1,
+      x <= stop  ~ 1 - (1-social) * (x-start) / 7,
       TRUE ~ social
     )
     
-    #  Do the predictions
+    # Do the predictions
     preds = predict(
       model, 
-      last_time=t0+180+input$lag, 
+      last_time = t0 + 180,
       contact_reduction=contact_reduction
     )
     
-    phi = extract(model$fit)$phi
-    
     # Predict admissions
-    new_cases = forecast_admissions_nb(
+    new_cases = forecast_new(
+      model,
       preds, 
-      rep(input$p, 1000),
-      phi
+      rep(1, 1000)
     )
     
     # Predict admissions
-    hospital_admissions = forecast_admissions_nb(
+    hospital_admissions = forecast_new(
+      model,
       preds, 
-      rep(input$hospital_relative_rate, 1000),
-      phi
+      rep(input$hospital_relative_rate, 1000)
     )
     
     # Predict admissions
-    icu_admissions = forecast_admissions_nb(
+    icu_admissions = forecast_new(
+      model,
       preds, 
-      rep(input$icu_relative_rate, 1000),
-      phi
+      rep(input$icu_relative_rate, 1000)
     )
     
     # Predict admissions
-    ventilator_admissions = forecast_admissions_nb(
+    ventilator_admissions = forecast_new(
+      model,
       preds, 
-      rep(input$ventilator_relative_rate, 1000),
-      phi
+      rep(input$ventilator_relative_rate, 1000)
     )
     
     # Do the predictions
@@ -168,10 +179,9 @@ server <- function(input, output) {
       icu_admissions = icu_admissions,
       ventilator_admissions = ventilator_admissions,
       t0 = as.numeric(lubridate::today()-lubridate::mdy('2/29/2020')),
-      samples = extract(model$fit, pars = c('recovery_time', 'doubling_time', 'exposure_time'))
+      samples = extract(model$fit, pars = c('recovery_time', 'doubling_time', 'exposure_time', 'beta', 'gamma'))
     )
-    
-    
+
   })
   
   #-------------------------------------------
@@ -186,7 +196,7 @@ server <- function(input, output) {
       future_days = input$future_days, 
       day0 = nrow(lax_data), 
       lag = input$lag,
-      name='ICU (non-ventilator) patients', 
+      name='ICU patients', 
       color='firebrick'
     )
     
@@ -197,7 +207,7 @@ server <- function(input, output) {
       future_days = input$future_days,
       day0 = nrow(lax_data), 
       lag = input$lag,
-      name='ICU (non-ventilator) patients', 
+      name='ICU patients', 
       color='firebrick'
     )
     
@@ -301,43 +311,100 @@ server <- function(input, output) {
     # -------------------------------------------------
     
     # Get the new data
-    observed_df = lax_data %>% mutate(ts = time-PREDS()$t0)
-    
-    
+    df = DF()$df
+    day0 = DF()$day0
+    t0 = DF()$t0
+
+    # 
     full_social = as.numeric(lubridate::mdy('3/19/2020') - lubridate::today())
     start_social = as.numeric(lubridate::mdy('3/12/2020') - lubridate::today())
     
+    # Some labeling stuff
+    xmax = as.numeric((today() + days(input$future_days)) - day0)
+    x_breaks = seq(0, xmax, 7)
     
     # Plot new admissions
-    g = plot_admissions(
+    g1 = plot_admissions(
         PREDS()$new_cases, 
         future_days = input$future_days, 
-        day0 = nrow(lax_data), 
+        day0 = day0, 
         lag = input$lag,
-        name='confirmed infected', 
+        name='exposed individuals', 
         color='purple'
       ) +
       geom_line(
-        data = observed_df,
-        aes(x=ts-input$lag, y=new_cases),
+        data = df,
+        aes(x=as.numeric(lag_date-day0), y=new_cases/input$p),
         size=2,
         color='orchid'
       ) +
       geom_vline(
-        xintercept = full_social,
+        xintercept = FULL_SOCIAL - today(),
         color = 'black',
         linetype = 'dashed'
       ) + 
       geom_vline(
-        xintercept = start_social,
+        xintercept = START_SOCIAL - today(),
         color = 'black',
         linetype = 'dashed'
       ) + 
-      ylab('New confirmed cases')
+      ylab('Newly exposed individuals') +
+      scale_x_continuous(
+        name = NULL,
+        limits = c(0, xmax),
+        breaks = seq(0, xmax, 7),
+        labels = (day0 + days(x_breaks)) %>% format("%m-%d")
+      ) +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust=1)
+      )
+    
+    tots = apply(PREDS()$new_cases, 2, function(x) cumsum(x))/ MODEL()$N
+    tots[tots>1] = 1
+    tots[tots<0] = 0
+    
+    # Plot new admissions
+    g2 = plot_admissions(
+        tots, 
+        future_days = input$future_days, 
+        day0 = day0, 
+        lag = input$lag,
+        name='exposed individuals', 
+        color='purple'
+      ) +
+      scale_y_continuous(
+        limits = c(0, 1),
+        breaks = seq(0, 1, 0.1),
+        name = 'Total proportion of population exposed'
+      ) +
+      geom_vline(
+        xintercept = full_social,
+        color = 'black',
+        linetype = 'dashed',
+        size = 1
+      ) + 
+      geom_vline(
+        xintercept = start_social,
+        color = 'black',
+        linetype = 'dashed',
+        size = 1
+      ) +
+      scale_x_continuous(
+        name = NULL,
+        limits = c(0, xmax),
+        breaks = seq(0, xmax, 7),
+        labels = (day0 + days(x_breaks)) %>% format("%m-%d")
+      ) +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust=1)
+      )
+    
+    g = g1 | g2
 
     # Save the file
     outfile <- tempfile(fileext = '.png')
     ggsave(outfile, g, height = 6, width=13)
+    ggsave('plots/new_cases.png', height = 6, width=13)
     
     # Return a list containing the filename
     list(
@@ -351,61 +418,57 @@ server <- function(input, output) {
   deleteFile = TRUE)
   
   output$data <- renderImage({
+
+    if (is.null(DF())) return(NULL)
     
     #--------------------------------------------------
     # Get the predictions
     # -------------------------------------------------
-    day0 = lubridate::mdy('2/29/2020')
-    t0 = as.numeric(lubridate::today() - day0)
-    
+    df = DF()$df
+    day0 = DF()$day0
+    t0 = DF()$t0
+
+    #--------------------------------------------------
+    # Get the predictions
+    # -------------------------------------------------
     full_social = lubridate::mdy('3/19/2020') 
     start_social = lubridate::mdy('3/12/2020') 
+    x_breaks = seq(0, as.numeric(today()-day0+2), 7) 
     
     g <- ggplot() +
       geom_line(
-        data = lax_data,
-        aes(x=time, y=new_cases, color='LAX')
+        data = df,
+        aes(x=as.numeric(date-day0), y=new_cases),
+        color = 'orchid'
       ) +
       geom_point(
-        data = lax_data,
-        aes(x=time, y=new_cases, color='LAX')
+        data = df,
+        aes(x=as.numeric(date-day0), y=new_cases),
+        color = 'orchid'
       ) +
       geom_line(
-        data = lax_data,
-        aes(x=time-input$lag, y=new_cases, color='LAX'),
+        data = df,
+        aes(x=as.numeric(lag_date-day0), y=new_cases),
+        color = 'orchid',
         linetype='dashed'
       ) +
       geom_point(
-        data = lax_data,
-        aes(x=time-input$lag, y=new_cases, color='LAX')
+        data = df,
+        aes(x=as.numeric(lag_date-day0), y=new_cases),
+        color = 'orchid'
       ) +
-      geom_line(
-        data = model_df,
-        aes(x=t_real, y=estimated_cases/avg_market_share/0.25, color='HOSP')
-      ) +
-      geom_point(
-        data = model_df,
-        aes(x=t_real, y=estimated_cases/avg_market_share/0.25, color='HOSP')
-      ) +
-      #geom_point(
-      #  data = model_df,
-      #  aes(x=t_real, y=estimated_cases/avg_market_share/0.25, color='HOSP')
-      #) +
       geom_vline(
         xintercept = today() - day0,
-        aes(color='today'),
         linetype='dashed',
         size = 1
       ) + 
       geom_vline(
-        xintercept = mdy('3/12/2020') - day0,
-        aes(color='schools'),
+        xintercept = start_social - day0,
         linetype='dashed',
         size = 1
       ) +  
       geom_vline(
         xintercept = mdy('3/19/2020') - day0,
-        aes(color='schools'),
         linetype='dashed',
         size = 1
       ) +  
@@ -426,26 +489,13 @@ server <- function(input, output) {
       ) +
       scale_x_continuous(
         name = 'Date',
-        breaks = seq(-14, 31, 7),
-        labels = (day0 + days(seq(-14, 31, 7))) %>% format("%m-%d"),
-        limits = c(-14, 31),
-        expand = c(0,0 )
+        breaks = x_breaks,
+        labels = (day0 + days(x_breaks)) %>% format("%m-%d"),
+        limits = c(0, as.numeric(today()-day0+2)),
+        expand = c(0, 0)
       ) +
       scale_y_continuous(
-        name = 'Count',
-        limits = c(-10, 500),
-        expand = c(0, 0),
-        breaks = seq(0, 450, 50)
-      ) +
-      scale_color_manual(
-        values = c(
-          'LAX'='Orchid', 
-          'HOSP'=ORANGE
-        ),
-        labels = c(
-          'LAX'='DPH newly confirmed cases',
-          'HOSP'='EMS total new PUI\n(weighted by marketshare)\n'
-        )
+        name = 'Count'
       ) +
       theme_bw() +
       theme(
@@ -460,6 +510,7 @@ server <- function(input, output) {
     # Save the file
     outfile <- tempfile(fileext = '.png')
     ggsave(outfile, g, height = 6, width=13)
+    ggsave('plots/observed_data.png', g, height = 6, width=13)
     
     # Return a list containing the filename
     list(
@@ -477,42 +528,48 @@ server <- function(input, output) {
   #--------------------------------------
   output$new_demand <- renderImage({
 
+    # Get the data stuff
+    df = DF()$df
+    day0 = DF()$day0
+    t0 = DF()$t0
+    
     # Plot new admissions
     g1 = plot_admissions(
-      PREDS()$hospital_admissions, 
-      future_days = input$future_days, 
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='hospital admissions', 
-      color='blue'
-    ) + ggtitle('New hospital admissions')
+        PREDS()$hospital_admissions, 
+        future_days = input$future_days, 
+        day0 = day0, 
+        lag = input$lag,
+        name=' COVID hospital admissions', 
+        color='blue'
+      ) + ggtitle('New COVID hospital admissions')
     
     
     # Plot new admissions
     g2 = plot_admissions(
       PREDS()$icu_admissions, 
       future_days = input$future_days, 
-      day0 = nrow(lax_data), 
+      day0 = day0, 
       lag = input$lag,
-      name='ICU (non-ventilator) patients', 
+      name=' COVID ICU patients', 
       color='firebrick'
-    ) + ggtitle('New ICU (non-ventilator) patients')
+    ) + ggtitle('New COVID ICU patients')
     
     # Plot new admissions
     g3 = plot_admissions(
       PREDS()$ventilator_admissions, 
       future_days = input$future_days, 
-      day0 = nrow(lax_data), 
+      day0 = day0, 
       lag = input$lag,
-      name='ventilator', 
+      name=' COVID ventilator patients', 
       color='goldenrod'
-    ) + ggtitle('New ventilator patients')
+    ) + ggtitle('New COVID ventilator patients')
     
     g = g1 | g2 | g3
     
     # Save the file
     outfile <- tempfile(fileext = '.png')
     ggsave(outfile, g, height = 5, width=13)
+    ggsave('plots/new_demand.png', g, height = 5, width=13)
     
     # Return a list containing the filename
     list(
@@ -527,16 +584,21 @@ server <- function(input, output) {
   
   output$total_demand <- renderImage({
     
+    # Get the data stuff
+    df = DF()$df
+    day0 = DF()$day0
+    t0 = DF()$t0
+    
     # Plot new admissions
     g1 = plot_demand(
       PREDS()$hospital_admissions, 
       los = input$hospital_los, 
       future_days = input$future_days, 
-      day0 = nrow(lax_data), 
+      day0 = day0, 
       lag = input$lag,
-      name='hospital patients', 
+      name=' COVID hospital patients', 
       color='blue'
-    ) + ggtitle('Current total hospital patients')
+    ) + ggtitle('Current total COVID hospital patients')
     
     
     # Plot new admissions
@@ -544,28 +606,29 @@ server <- function(input, output) {
       PREDS()$icu_admissions, 
       los = input$icu_los, 
       future_days = input$future_days, 
-      day0 = nrow(lax_data), 
+      day0 = day0, 
       lag = input$lag,
-      name='ICU (non-ventilator) patients', 
+      name=' COVID ICU patients', 
       color='firebrick'
-    ) + ggtitle('Current total ICU (non-ventilator) patients')
+    ) + ggtitle('Current total COVID ICU patients')
     
     # Plot new admissions
     g3 = plot_demand(
       PREDS()$ventilator_admissions, 
       los = input$ventilator_los, 
       future_days = input$future_days,
-      day0 = nrow(lax_data), 
+      day0 = day0, 
       lag = input$lag,
-      name='ventilator patients', 
+      name=' COVID ventilator patients', 
       color='goldenrod'
-    ) + ggtitle('Current total ventilator patients')
+    ) + ggtitle('Current total COVID ventilator patients')
     
     g = g1 | g2 | g3
     
     # Save the file
     outfile <- tempfile(fileext = '.png')
     ggsave(outfile, g, height = 5, width=13)
+    ggsave('plots/total_demand.png', g, height = 5, width=13)
     
     # Return a list containing the filename
     list(
@@ -593,8 +656,7 @@ server <- function(input, output) {
         aes(x=doubling_time)
       ) +
       geom_histogram(
-        aes(y = stat(count) / sum(count)),
-        breaks = seq(1, 5, 0.1)
+        aes(y = stat(count) / sum(count))
       ) +
       scale_x_continuous(
         name = 'Doubling time'
@@ -610,6 +672,7 @@ server <- function(input, output) {
     # Save the file
     outfile <- tempfile(fileext = '.png')
     ggsave(outfile, g, height = 4, width=4)
+    ggsave('plots/doubling_time.png', g, height = 4, width=4)
     
     # Return a list containing the filename
     list(
@@ -649,6 +712,7 @@ server <- function(input, output) {
     # Save the file
     outfile <- tempfile(fileext = '.png')
     ggsave(outfile, g, height = 4, width=4)
+    ggsave('plots/contagious_time.png', g, height = 4, width=4)
     
     # Return a list containing the filename
     list(
@@ -699,6 +763,44 @@ server <- function(input, output) {
   }, 
   deleteFile = TRUE)
   
+  output$plot_R0 <- renderImage({
+    
+    samples = data.frame(
+      doubling_time = PREDS()$samples$beta / PREDS()$samples$gamma
+    ) 
+    
+    g <- ggplot(
+        data = samples,
+        aes(x=doubling_time)
+      ) +
+      geom_histogram(
+        aes(y = stat(count) / sum(count))
+      ) +
+      scale_x_continuous(
+        name = 'Estimated R0'
+      ) +
+      scale_y_continuous(
+        limits = c(0, 0.5),
+        name = 'Proportion'
+      ) +
+      theme_bw() 
+
+    # Save the file
+    outfile <- tempfile(fileext = '.png')
+    ggsave(outfile, g, height = 4, width=4)
+    ggsave('plots/r0.png', g, height = 4, width=4)
+    
+    # Return a list containing the filename
+    list(
+      src = outfile,
+      contentType = 'image/png',
+      width = 4*105,
+      height = 4*105,
+      alt = "This is alternate text"
+    )
+  }, 
+  deleteFile = FALSE)
+  
   #---------------------------------------
   # Threshold tables
   #---------------------------------------
@@ -706,46 +808,44 @@ server <- function(input, output) {
   output$hospital_thresholds = renderTable({
     
     # Make the tables
-    census_table(
+    tab = census_table(
       admissions=PREDS()$hospital_admissions, 
       los=input$hospital_los, 
-      t0=PREDS()$t0, 
-      thresholds = c(500, 1000, 2000, 4000, 8000, 16000, 32000, 64000),
-      lag=input$lag
+      day0=DF()$day0, 
+      thresholds = c(500, 1000, 2000, 4000, 8000, 16000, 32000, 64000)
     )
     
+    write.csv(tab, 'plots/hospital_thresholds.csv')
     
-    
+    tab
   })
   
   output$icu_thresholds = renderTable({
-    
     # Make the tables
-    census_table(
+    tab = census_table(
       admissions=PREDS()$icu_admissions, 
       los=input$icu_los, 
-      t0=PREDS()$t0, 
-      thresholds = c(125, 250, 500, 1000, 2000, 4000, 8000, 16000),
-      lag=input$lag
+      day0=DF()$day0, 
+      thresholds = c(125, 250, 500, 1000, 2000, 4000, 8000, 16000)
     )
     
+    write.csv(tab, 'plots/icu_thresholds.csv')
     
-    
+    tab
   })
   
   output$ventilator_thresholds = renderTable({
-    
     # Make the tables
-    census_table(
+    tab = census_table(
       admissions=PREDS()$ventilator_admissions, 
       los=input$ventilator_los, 
-      t0=PREDS()$t0, 
-      thresholds = c(100, 200, 400, 800, 1600, 3200, 6400, 12800),
-      lag=input$lag
+      day0=DF()$day0, 
+      thresholds = c(100, 200, 400, 800, 1600, 3200, 6400, 12800)
     )
     
+    write.csv(tab, 'plots/ventilator_thresholds.csv')
     
-    
+    tab
   })
   
   #---------------------------------------
@@ -776,6 +876,14 @@ server <- function(input, output) {
     PREDS()$samples$exposure_time %>% mean() %>% round() %>% as.character()
   })
   
+  output$est_r0_mean <- renderText({
+    if (is.null(PREDS()$samples$beta)){
+      return(NULL)
+    }
+    
+    (PREDS()$samples$beta / PREDS()$samples$gamma)  %>% mean() %>% round(1) %>% as.character()
+  })
+  
   output$est_doubling_sd <- renderText({
     if (is.null(PREDS()$samples$doubling_time)){
       return(NULL)
@@ -800,15 +908,22 @@ server <- function(input, output) {
     PREDS()$samples$exposure_time %>% sd() %>% round(2) %>% as.character()
   })
   
+  output$est_r0_sd <- renderText({
+    if (is.null(PREDS()$samples$beta)){
+      return(NULL)
+    }
+    
+    (PREDS()$samples$beta / PREDS()$samples$gamma)  %>% sd() %>% round(2) %>% as.character()
+  })
+  
   #---------------------------------------
   # Table of the data
   #---------------------------------------
   
   output$contents = renderTable({
-    
     # input$file1 will be NULL initially. After the user selects
     # and uploads a file, it will be a data frame 
-    return(lax_data %>% select(time, new_confirmed_cases=new_cases))
+    return(DF()$df)
     
   })
   

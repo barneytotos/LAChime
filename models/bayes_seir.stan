@@ -16,19 +16,18 @@ functions {
       
       real S = N;
       real E = E0;
-      real I = 0; 
+      real I = E0*alpha; 
       real R = 0;
-      real NN = N + E0;
+      real NN = S + E + I + R;
       
       real delta_exp;
       real delta_inf;
       real delta_rec;
       real scale;
       
-      // Do the updates
       // Run a time updates at time -2, -1, 0 to add to 
       // The infected population
-      for (t in 1:last_time){
+      for (t in -14:last_time){
         
         //  Compute the differences
         delta_exp = beta*S*I/N;
@@ -54,7 +53,7 @@ functions {
         I = I * scale;
         R = R * scale;
         
-        if (t > 0) delta[t] = delta_inf;
+        if (t > 0) delta[t] = delta_exp;
         
       }
       return delta;
@@ -148,6 +147,7 @@ model {
   exposure_time ~ gamma(exposure_a, exposure_b);
   recovery_time ~ gamma(recovery_a, recovery_b);
   E0 ~ normal(E0_mean, E0_sd);
+  phi ~ normal(30, 10);
 
   // Likelihood
   ys ~ neg_binomial_2(newly_exposed[times] .* ps, phi);

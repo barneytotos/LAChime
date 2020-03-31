@@ -20,7 +20,7 @@ ui <- fluidPage(
       ),
       numericInput(
         "lag", 
-        "Time from exposure to positive test result counted by DPH", 
+        "Time from exposure to positive test result", 
         value = 13,
         min = 0.0,
         max = 30
@@ -32,21 +32,17 @@ ui <- fluidPage(
         min = 0.00,
         max = 0.999999
       ),
-      #################################      ## Demand parameters Parameters
+      em('Social distancing begins taking effect on 03/13/20 (day after school closure) and takes full effect on 3/19/20.'),
+      #################################      
+      ## Demand parameters Parameters
       ##################################
-      h3("Demand parameters", style = "color:blue"),
+      h5(strong("Proportion of newly exposed people that become:", align="bottom")),
       fluidRow(
-        column(
-          6,
-          br(),
-          br(),
-          h4(strong("Hospitalized", align="bottom"))
-        ),
         column(
           3,
           numericInput(
             "hospital_relative_rate", 
-            h5("Proportion"), 
+            h5("Hospitalized"), 
             value = 0.1,
             min = 0.001,
             max = 1
@@ -55,24 +51,8 @@ ui <- fluidPage(
         column(
           3,
           numericInput(
-            "hospital_los", 
-            h5("LOS"), 
-            value = 7,
-            min = 1,
-            max =100
-          )
-        )
-      ),
-      fluidRow(
-        column(
-          6,
-          h4(strong("ICU", align="bottom"))
-        ),
-        column(
-          3,
-          numericInput(
             "icu_relative_rate", 
-            NULL, 
+            h5("ICU"), 
             value = 0.03,
             min = 0.001,
             max = 100
@@ -81,26 +61,36 @@ ui <- fluidPage(
         column(
           3,
           numericInput(
-            "icu_los", 
-            NULL, 
-            value = 9,
-            min = 1,
-            max =100
+            "ventilator_relative_rate", 
+            h5("Ventilator"), 
+            value = 0.02,
+            min = 0.001,
+            max = 100
           )
         )
       ),
+      #################################      
+      ## Demand parameters Parameters
+      ##################################
+      h5(strong("Average length of stay by demand type:", align="bottom")),
       fluidRow(
         column(
-          6,
-          h4(strong("Ventilator", align="bottom"))
+          3,
+          numericInput(
+            "hospital_los", 
+            h5("Hospitalized"), 
+            value = 7,
+            min = 1,
+            max = 100
+          )
         ),
         column(
           3,
           numericInput(
-            "ventilator_relative_rate", 
-            NULL, 
-            value = 0.02,
-            min = 0.001,
+            "icu_los", 
+            h5("ICU"), 
+            value = 9,
+            min = 9,
             max = 100
           )
         ),
@@ -108,10 +98,10 @@ ui <- fluidPage(
           3,
           numericInput(
             "ventilator_los", 
-            NULL, 
+            h5("Ventilator"), 
             value = 10,
             min = 1,
-            max =100
+            max = 100
           )
         )
       ),
@@ -121,12 +111,12 @@ ui <- fluidPage(
       h3("Settings", style = "color:blue"),
       fluidRow(
         column(
-          width = 4,
-          strong(h4('Forecast days')),
+          width = 5,
+          strong(h4('Forecast length')),
           align='right'
         ),
         column(
-          width=4,
+          width=3,
           numericInput(
             "future_days", 
             NULL, 
@@ -135,16 +125,27 @@ ui <- fluidPage(
           )
         ),
         column(
-          4,
+          3,
           actionButton("runButton", "Simulate")
         )
+      ),
+      radioButtons(
+        "dataSet", 
+        h3("Data", style = "color:blue"), 
+        choices = list(
+          "DPH" = 'dph', 
+          "DPH (last 10)" = 'dph_last_10', 
+          "EMS" = 'ems',
+          "EMS (PUI)" = 'pui'
+        ),
+        selected = 'dph'
       )
     ),
     mainPanel(
       tabsetPanel(
         type = "tabs",
         tabPanel("Observed data",  imageOutput("data")),
-        tabPanel("Newly confirmed infected",  imageOutput("new_cases")),
+        tabPanel("Newly exposed individuals",  imageOutput("new_cases")),
         tabPanel("New demand",                imageOutput("new_demand")),
         tabPanel("Current total demand",      imageOutput("total_demand")),
         tabPanel(
@@ -161,7 +162,7 @@ ui <- fluidPage(
               width=4,
               align='center',
               br(),
-              h4('Pr(total ICU (non-ventilator) patients > threshold)'),
+              h4('Pr(total ICU patients > threshold)'),
               tableOutput("icu_thresholds")
             ),
             column(
@@ -173,9 +174,6 @@ ui <- fluidPage(
             )
           )
         ),
-        # tabPanel("Hospital forecast",         imageOutput("hospital")),
-        # tabPanel("ICU forecast",              imageOutput("icu")),
-        # tabPanel("Ventilator forecast",       imageOutput("ventilator")),
         tabPanel(
           'Model',
           fluidRow(
@@ -192,7 +190,7 @@ ui <- fluidPage(
             column(
               width = 4,
               align = 'center',
-              h3(strong("Average days from exposure to infectious", align="bottom"))
+              h3(strong("R0", align="bottom"))
             )
           ),
           #------------------
@@ -209,7 +207,7 @@ ui <- fluidPage(
             ),
             column(
               width = 4,
-              imageOutput("plot_exposure_time")
+              imageOutput("plot_R0")
             )
           ),
           br(),
@@ -250,18 +248,13 @@ ui <- fluidPage(
             ),
             column(
               width = 2,
-              h4('Prior mean'),
+              '',
               align='right'
             ),
             column(
               width = 2,
               align = 'left',
-              numericInput(
-                "exposure_mean", 
-                label = NULL,
-                value = 2.5,
-                min = 1
-              )
+              ''
             )
           ),
           #------------------
@@ -279,7 +272,7 @@ ui <- fluidPage(
               numericInput(
                 "doubling_sd", 
                 label = NULL,
-                value = 1.5,
+                value = 1.0,
                 min = 1
               )
             ),
@@ -300,18 +293,13 @@ ui <- fluidPage(
             ),
             column(
               width = 2,
-              h4('Prior sd'),
+              '',
               align='right'
             ),
             column(
               width = 2,
               align = 'left',
-              numericInput(
-                "exposure_sd", 
-                label = NULL,
-                value = 1.5,
-                min = 1
-              )
+              ''
             )
           ),
           #------------------
@@ -346,7 +334,7 @@ ui <- fluidPage(
             column(
               width = 2,
               align = 'left',
-              h4(textOutput('est_exposure_mean'))
+              h4(textOutput('est_r0_mean'))
             )
           ),
           #------------------
@@ -381,7 +369,7 @@ ui <- fluidPage(
             column(
               width = 2,
               align = 'left',
-              h4(textOutput('est_exposure_sd'))
+              h4(textOutput('est_r0_sd'))
             )
           )
         ),
