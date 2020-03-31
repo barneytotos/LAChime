@@ -14,14 +14,14 @@ ui <- fluidPage(
       numericInput(
         "p", 
         "Proportion of newly exposed people that eventually test positive", 
-        value = 0.1,
+        value = 0.375,
         min = 0.0001,
         max = 1
       ),
       numericInput(
         "lag", 
         "Time from exposure to positive test result", 
-        value = 13,
+        value = 19,
         min = 0.0,
         max = 30
       ),
@@ -120,7 +120,7 @@ ui <- fluidPage(
           numericInput(
             "future_days", 
             NULL, 
-            value = 10,
+            value = 42,
             min = 8
           )
         ),
@@ -138,7 +138,7 @@ ui <- fluidPage(
           "EMS" = 'ems',
           "EMS (PUI)" = 'pui'
         ),
-        selected = 'dph'
+        selected = 'dph_last_10'
       )
     ),
     mainPanel(

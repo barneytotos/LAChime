@@ -14,6 +14,8 @@ library('lubridate')
 # -------------------------------
 START_SOCIAL = mdy('3/12/2020')
 FULL_SOCIAL = mdy('3/19/2020')
+DEMAND_LAG = 13
+
 dir.create('plots', showWarnings = FALSE)
 
 server <- function(input, output) {
@@ -39,15 +41,14 @@ server <- function(input, output) {
       
       # DOF data with only the last 10
       df <- readr::read_csv('../data/lax_county_data_26MAR20.csv') %>% 
-        mutate(
-          date = mdy(day),
-          time = as.numeric(date - min(date)) + 1
-        ) %>% 
         tail(10) %>%
         mutate(
+          date = mdy(day),
+          time = as.numeric(date - min(date)) + 1,
           lag_date = date - days(input$lag),
           lag_time = as.numeric(lag_date - min(lag_date)) + 1
         )
+      
     } else if (input$dataSet=='ems'){
       
       df <- readr::read_csv('../data/la_ems_30MAR20.csv') %>%
@@ -70,11 +71,9 @@ server <- function(input, output) {
     } else {
       stop('DATA SET NOT SPECIFIED')
     }
-
-    
-    day0 = min(df$lag_date) - days(1)
     
     # Setup global time variables
+    day0 = min(df$lag_date) - days(1)
     list(
       df = df,
       day0 = day0,
@@ -174,6 +173,7 @@ server <- function(input, output) {
     # Do the predictions
     list(
       # Predicions for the plots
+      preds = preds,
       new_cases = new_cases,
       hospital_admissions = hospital_admissions,
       icu_admissions = icu_admissions,
@@ -187,122 +187,6 @@ server <- function(input, output) {
   #-------------------------------------------
   # Plots by demand type
   #-------------------------------------------
-  
-  output$icu <- renderImage({
-    
-    # Plot new admissions
-    g1 = plot_admissions(
-      PREDS()$icu_admissions, 
-      future_days = input$future_days, 
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='ICU patients', 
-      color='firebrick'
-    )
-    
-    # Plot total census
-    g2 = plot_demand(
-      PREDS()$icu_admissions, 
-      los = input$icu_los, 
-      future_days = input$future_days,
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='ICU patients', 
-      color='firebrick'
-    )
-    
-    # Save the file
-    outfile <- tempfile(fileext = '.png')
-    ggsave(outfile, g1 | g2, height = 6, width=13)
-    
-    # Return a list containing the filename
-    list(
-      src = outfile,
-      contentType = 'image/png',
-      width = 13*105,
-      height = 6*105,
-      alt = "This is alternate text"
-    )
-  }, 
-  deleteFile = TRUE)
-
-  output$hospital <- renderImage({
-    
-    # Plot new admissions
-    g1 = plot_admissions(
-      PREDS()$hospital_admissions, 
-      future_days = input$future_days, 
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='hospital patients', 
-      color='blue'
-    )
-    
-    # Plot total census
-    g2 = plot_demand(
-      PREDS()$hospital_admissions, 
-      los = input$hospital_los, 
-      future_days = input$future_days,
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='hospital patients', 
-      color='blue'
-    )
-    
-    
-    
-    # Save the file
-    outfile <- tempfile(fileext = '.png')
-    ggsave(outfile, g1 | g2, height = 6, width=13)
-    
-    # Return a list containing the filename
-    list(
-      src = outfile,
-      contentType = 'image/png',
-      width = 13*105,
-      height = 6*105,
-      alt = "This is alternate text"
-    )
-  }, 
-  deleteFile = TRUE)
-  
-  output$ventilator <- renderImage({
-    
-    # Plot new admissions
-    g1 = plot_admissions(
-      PREDS()$ventilator_admissions, 
-      future_days = input$future_days, 
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='ventilator patients', 
-      color='goldenrod'
-    )
-    
-    # Plot total census
-    g2 = plot_demand(
-      PREDS()$ventilator_admissions, 
-      los = input$ventilator_los, 
-      future_days = input$future_days,
-      day0 = nrow(lax_data), 
-      lag = input$lag,
-      name='ventilator patients', 
-      color='goldenrod'
-    )
-    
-    # Save the file
-    outfile <- tempfile(fileext = '.png')
-    ggsave(outfile, g1 | g2, height = 6, width=13)
-    
-    # Return a list containing the filename
-    list(
-      src = outfile,
-      contentType = 'image/png',
-      width = 13*105,
-      height = 6*105,
-      alt = "This is alternate text"
-    )
-  }, 
-  deleteFile = TRUE)
   
   output$new_cases <- renderImage({
     
@@ -326,9 +210,10 @@ server <- function(input, output) {
     # Plot new admissions
     g1 = plot_admissions(
         PREDS()$new_cases, 
+        # PREDS()$preds[, 5, ], 
         future_days = input$future_days, 
         day0 = day0, 
-        lag = input$lag,
+        lag = 0,
         name='exposed individuals', 
         color='purple'
       ) +
@@ -368,7 +253,7 @@ server <- function(input, output) {
         tots, 
         future_days = input$future_days, 
         day0 = day0, 
-        lag = input$lag,
+        lag = 0,
         name='exposed individuals', 
         color='purple'
       ) +
@@ -538,7 +423,7 @@ server <- function(input, output) {
         PREDS()$hospital_admissions, 
         future_days = input$future_days, 
         day0 = day0, 
-        lag = input$lag,
+        lag = DEMAND_LAG,
         name=' COVID hospital admissions', 
         color='blue'
       ) + ggtitle('New COVID hospital admissions')
@@ -549,7 +434,7 @@ server <- function(input, output) {
       PREDS()$icu_admissions, 
       future_days = input$future_days, 
       day0 = day0, 
-      lag = input$lag,
+      lag = DEMAND_LAG,
       name=' COVID ICU patients', 
       color='firebrick'
     ) + ggtitle('New COVID ICU patients')
@@ -559,7 +444,7 @@ server <- function(input, output) {
       PREDS()$ventilator_admissions, 
       future_days = input$future_days, 
       day0 = day0, 
-      lag = input$lag,
+      lag = DEMAND_LAG,
       name=' COVID ventilator patients', 
       color='goldenrod'
     ) + ggtitle('New COVID ventilator patients')
@@ -595,7 +480,7 @@ server <- function(input, output) {
       los = input$hospital_los, 
       future_days = input$future_days, 
       day0 = day0, 
-      lag = input$lag,
+      lag = DEMAND_LAG,
       name=' COVID hospital patients', 
       color='blue'
     ) + ggtitle('Current total COVID hospital patients')
@@ -607,7 +492,7 @@ server <- function(input, output) {
       los = input$icu_los, 
       future_days = input$future_days, 
       day0 = day0, 
-      lag = input$lag,
+      lag = DEMAND_LAG,
       name=' COVID ICU patients', 
       color='firebrick'
     ) + ggtitle('Current total COVID ICU patients')
@@ -618,7 +503,7 @@ server <- function(input, output) {
       los = input$ventilator_los, 
       future_days = input$future_days,
       day0 = day0, 
-      lag = input$lag,
+      lag = DEMAND_LAG,
       name=' COVID ventilator patients', 
       color='goldenrod'
     ) + ggtitle('Current total COVID ventilator patients')
@@ -812,6 +697,7 @@ server <- function(input, output) {
       admissions=PREDS()$hospital_admissions, 
       los=input$hospital_los, 
       day0=DF()$day0, 
+      lag = DEMAND_LAG,
       thresholds = c(500, 1000, 2000, 4000, 8000, 16000, 32000, 64000)
     )
     
@@ -826,6 +712,7 @@ server <- function(input, output) {
       admissions=PREDS()$icu_admissions, 
       los=input$icu_los, 
       day0=DF()$day0, 
+      lag = DEMAND_LAG,
       thresholds = c(125, 250, 500, 1000, 2000, 4000, 8000, 16000)
     )
     
@@ -840,9 +727,9 @@ server <- function(input, output) {
       admissions=PREDS()$ventilator_admissions, 
       los=input$ventilator_los, 
       day0=DF()$day0, 
+      lag = DEMAND_LAG,
       thresholds = c(100, 200, 400, 800, 1600, 3200, 6400, 12800)
-    )
-    
+    ) 
     write.csv(tab, 'plots/ventilator_thresholds.csv')
     
     tab
@@ -924,8 +811,127 @@ server <- function(input, output) {
     # input$file1 will be NULL initially. After the user selects
     # and uploads a file, it will be a data frame 
     return(DF()$df)
-    
   })
+  
+  #---------------------------------------
+  # Outdated
+  #---------------------------------------
+  
+  output$icu <- renderImage({
+    
+    # Plot new admissions
+    g1 = plot_admissions(
+      PREDS()$icu_admissions, 
+      future_days = input$future_days, 
+      day0 = nrow(lax_data), 
+      lag = DEMAND_LAG,
+      name='ICU patients', 
+      color='firebrick'
+    )
+    
+    # Plot total census
+    g2 = plot_demand(
+      PREDS()$icu_admissions, 
+      los = input$icu_los, 
+      future_days = input$future_days,
+      day0 = nrow(lax_data), 
+      lag = DEMAND_LAG,
+      name='ICU patients', 
+      color='firebrick'
+    )
+    
+    # Save the file
+    outfile <- tempfile(fileext = '.png')
+    ggsave(outfile, g1 | g2, height = 6, width=13)
+    
+    # Return a list containing the filename
+    list(
+      src = outfile,
+      contentType = 'image/png',
+      width = 13*105,
+      height = 6*105,
+      alt = "This is alternate text"
+    )
+  }, 
+  deleteFile = TRUE)
+  
+  output$hospital <- renderImage({
+    
+    # Plot new admissions
+    g1 = plot_admissions(
+      PREDS()$hospital_admissions, 
+      future_days = input$future_days, 
+      day0 = nrow(lax_data), 
+      lag = DEMAND_LAG,
+      name='hospital patients', 
+      color='blue'
+    )
+    
+    # Plot total census
+    g2 = plot_demand(
+      PREDS()$hospital_admissions, 
+      los = input$hospital_los, 
+      future_days = input$future_days,
+      day0 = nrow(lax_data), 
+      lag = DEMAND_LAG,
+      name='hospital patients', 
+      color='blue'
+    )
+    
+    
+    
+    # Save the file
+    outfile <- tempfile(fileext = '.png')
+    ggsave(outfile, g1 | g2, height = 6, width=13)
+    
+    # Return a list containing the filename
+    list(
+      src = outfile,
+      contentType = 'image/png',
+      width = 13*105,
+      height = 6*105,
+      alt = "This is alternate text"
+    )
+  }, 
+  deleteFile = TRUE)
+  
+  output$ventilator <- renderImage({
+    
+    # Plot new admissions
+    g1 = plot_admissions(
+      PREDS()$ventilator_admissions, 
+      future_days = input$future_days, 
+      day0 = nrow(lax_data), 
+      lag = DEMAND_LAG,
+      name='ventilator patients', 
+      color='goldenrod'
+    )
+    
+    # Plot total census
+    g2 = plot_demand(
+      PREDS()$ventilator_admissions, 
+      los = input$ventilator_los, 
+      future_days = input$future_days,
+      day0 = nrow(lax_data), 
+      lag = DEMAND_LAG,
+      name='ventilator patients', 
+      color='goldenrod'
+    )
+    
+    # Save the file
+    outfile <- tempfile(fileext = '.png')
+    ggsave(outfile, g1 | g2, height = 6, width=13)
+    
+    # Return a list containing the filename
+    list(
+      src = outfile,
+      contentType = 'image/png',
+      width = 13*105,
+      height = 6*105,
+      alt = "This is alternate text"
+    )
+  }, 
+  deleteFile = TRUE)
   
 }
 

@@ -130,6 +130,8 @@ parameters {
 
 transformed parameters{
   
+  
+  
   // SIR parameters
   real<lower=0> alpha = 1.0/exposure_time;
   real<lower=0> gamma = 1.0/recovery_time;
@@ -151,5 +153,4 @@ model {
 
   // Likelihood
   ys ~ neg_binomial_2(newly_exposed[times] .* ps, phi);
-
 }

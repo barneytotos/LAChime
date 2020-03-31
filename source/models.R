@@ -606,11 +606,11 @@ fit.BayesSEIR = function(model, times, new_cases, p=0.25) {
   model$fit = sampling(
     model$SM, 
     c(stan_data, model$prior),
-    iter=2*10**3,
-    warmup=10**3,
+    iter=5*10**3 + 5*10**3,
+    warmup=5*10**3,
     chains=1,
     cores=1,
-    thin=1,
+    thin=5,
     control= list(
       'adapt_delta'=0.99
     ),

@@ -14,13 +14,13 @@ DARKGRAY = 'gray35'
 plot_admissions = function(admissions, future_days, day0, lag=0, name='', color='blue'){
   
   # Set the times scale
-  ts = 1:dim(admissions)[1]
+  ts = 1:dim(admissions)[1] + lag
   
   first_day = (today() - days(14)) - day0 
   xmin = as.numeric(first_day)
-  xmax = as.numeric((today() + days(future_days)) - day0)
+  xmax = as.numeric(((today() + days(future_days))) - day0)
   x_breaks = seq(xmin, xmax, 7)
-  
+
   # Admissions uncertainty
   admissions_df = data.frame(
     ts = ts,
@@ -31,7 +31,10 @@ plot_admissions = function(admissions, future_days, day0, lag=0, name='', color=
   
   # Admissions samples
   wrapper = function(s) data.frame(sim=s, ts = ts, ys=admissions[,s]) 
-  inds = sample(1000, 25, replace = FALSE)
+  
+  # inds = c(500, 600, 700)
+  inds = sample(1:dim(admissions)[2], 25)
+  
   admissions_sims = map(inds, wrapper) %>% bind_rows()
 
   # Setup the y axis
@@ -87,10 +90,10 @@ plot_admissions = function(admissions, future_days, day0, lag=0, name='', color=
 #' @param input: the input from ui
 #' @param color: string, color to plot
 #' @return ggplot of the new admissions/census for a single service.
-plot_demand = function(admissions, los, future_days, day0, lag='', name='', color='blue'){
+plot_demand = function(admissions, los, future_days, day0, lag=0, name='', color='blue'){
 
   # Set the times scale
-  ts = 1:dim(admissions)[1]
+  ts = 1:dim(admissions)[1] + lag
   
   first_day = (today() - days(14)) - day0 
   xmin = as.numeric(first_day)
@@ -164,10 +167,10 @@ plot_demand = function(admissions, los, future_days, day0, lag='', name='', colo
 }
 
 
-census_table = function(admissions, los, day0, thresholds){
+census_table = function(admissions, los, day0, lag, thresholds){
   
   # Create the census
-  inds = as.numeric((today() + days(c(7, 14, 21, 28))) - day0)
+  inds = as.numeric((today() + days(c(7, 14, 21, 28))) - day0) - lag
   
   census = forecast_census_v(
     admissions, 
