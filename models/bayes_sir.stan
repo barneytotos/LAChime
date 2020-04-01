@@ -1,60 +1,52 @@
 /*
-*  Bayesian version of the SEIR model
+*  Bayesian version of the basic SIR model
 *  The likelihood assumes that we only observed proportion of the true cases
 */ 
 functions {
-
+    
     /* Computes step-wise SIR predictions
     * @param N:  the number of people in the population
     * @param I0: the number of initially infected people
     * @param beta; the beta parameter
     * @param gamma: the gamma parameter
     */
-    vector discrete_seir(int N, real E0, real gamma, real beta, real alpha, int last_time){
+    vector discrete_sir(int N, real I0, real gamma, real beta, int last_time){
     
       vector[last_time] delta;
       
       real S = N;
-      real E = E0;
-      real I = E0*alpha; 
+      real I = I0;
       real R = 0;
-      real NN = S + E + I + R;
+      real NN = N + I0;
       
-      real delta_exp;
-      real delta_inf;
-      real delta_rec;
+      real delta_in;
+      real delta_out;
       real scale;
       
-      // Run a time updates at time -2, -1, 0 to add to 
-      // The infected population
-      for (t in -14:last_time){
+      // Do the updates
+      for (t in 1:last_time){
         
         //  Compute the differences
-        delta_exp = beta*S*I/N;
-        delta_inf = alpha*E;
-        delta_rec = gamma*I;
+        delta_in = beta*S*I/N;
+        delta_out = gamma*I;
         
         // Update the counts
-        S = S - delta_exp;
-        E = E + delta_exp - delta_inf;
-        I = I + delta_inf - delta_rec;
-        R = R + delta_rec;
+        S = S - delta_in;
+        I = I + delta_in - delta_out;
+        R = R + delta_out;
         
         // Handle the cases where things dip below 0
         if (S < 0) S=0.0;
-        if (E < 0) E=0.0;
-        if (I < 0) I=0.0;
-        if (R < 0) R=0.0;
+        if (I < 0) S=0.0;
+        if (R < 0) S=0.0;
         
         // Make sure the total still scales to N
-        scale = NN / (S+E+I+R);
+        scale = NN / (S+I+R);
         S = S * scale;
-        E = E * scale;
         I = I * scale;
         R = R * scale;
         
-        if (t > 0) delta[t] = delta_exp;
-        
+        delta[t] = delta_in;
       }
       return delta;
   }
@@ -92,8 +84,8 @@ data {
   vector<lower=0, upper=1>[T] ps;  // probability of observing a newly infected person at time t
   
   // Priors
-  real<lower=0> exposure_mean;
-  real<lower=0> exposure_sd;
+  real<lower=0> I0_mean;
+  real<lower=0> I0_sd;
   
   real<lower=0> recovery_mean;
   real<lower=0> recovery_sd;
@@ -106,38 +98,30 @@ data {
 
 transformed data {
   
-  real<lower=0> recovery_b = recovery_mean/pow(recovery_sd, 2.0);
+  real<lower=0> recovery_b = recovery_mean/pow(recovery_sd,2.0);
   real<lower=0> recovery_a = recovery_mean * recovery_b;
   
-  real<lower=0> exposure_b = exposure_mean/pow(exposure_sd, 2.0);
-  real<lower=0> exposure_a = exposure_mean * exposure_b;
   
   real<lower=0> doubling_b = doubling_mean/pow(doubling_sd, 2.0);
   real<lower=0> doubling_a = doubling_mean*doubling_b;
-
-  real<lower=0> E0_mean=100;
-  real<lower=0> E0_sd=1000;
   
 }
 
 parameters {
   real<lower=0> doubling_time;
-  real<lower=1> exposure_time;
-  real<lower=1> recovery_time;
-  real<lower=1> sigma;
-  real<lower=0> E0;
+  real<lower=0> recovery_time;
+  real<lower=0> I0;
+  real<lower=0> phi;
 }
 
 transformed parameters{
   
   // SIR parameters
-  real<lower=0> alpha = 1.0/exposure_time;
   real<lower=0> gamma = 1.0/recovery_time;
   real<lower=0> beta = pow(2.0, 1.0/doubling_time)-1.0+gamma;
-  real<lower=0> phi = 1.0 / (pow(sigma, 2) - 1);
   
   // Likelihood parameters
-  vector<lower=0>[last_time] newly_exposed = discrete_seir(N, E0, gamma, beta, alpha, last_time);   
+  vector<lower=0>[last_time] newly_infected = discrete_sir(N, I0, gamma, beta, last_time);   
   
 }
 
@@ -145,12 +129,12 @@ model {
   
   // Priors
   doubling_time ~ gamma(doubling_a, doubling_b);
-  exposure_time ~ gamma(exposure_a, exposure_b);
   recovery_time ~ gamma(recovery_a, recovery_b);
-  E0 ~ normal(E0_mean, E0_sd);
-  sigma ~ normal(1, 1);
+  I0 ~ normal(I0_mean, I0_sd);
 
   // Likelihood
-  // ys ~ neg_binomial_2(newly_exposed[times] .* ps, phi);
-  ys ~ neg_binomial(newly_exposed[times] .* ps * phi, phi);
+  // target += binom_loglik(ys, newly_infected[times], ps);
+  ys ~ neg_binomial_2(newly_infected[times] .* ps, phi);
+  target += -sqrt(phi);
+
 }

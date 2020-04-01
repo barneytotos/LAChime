@@ -710,13 +710,7 @@ predict.BayesSEIR = function(
 #' @param rate: vector, lenght=# sims, the demand for the service relative to the total infected population
 #' @return T x S (Day / Sims) matrix of new admisions 
 forecast_new.BayesSEIR = function(model, preds, rate) {
-  
-  apply(preds[, 5, ], 1, function(x) rnbinom(n=10**3, mu=x*rate+1e-6, size=extract(model$fit)$phi)) %>% t
-  
+  phi = extract(model$fit)$phi
+  prob = phi / (1 + phi) # convert from stan's 'beta' to r's p
+  apply(preds[, 5, ], 1, function(x) rnbinom(n=10**3, size=x*rate*phi, prob=prob)) %>% t
 }
-
-
-
-
-
-

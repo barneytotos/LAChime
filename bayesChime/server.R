@@ -209,8 +209,8 @@ server <- function(input, output) {
     
     # Plot new admissions
     g1 = plot_admissions(
-        PREDS()$new_cases, 
-        # PREDS()$preds[, 5, ], 
+        # PREDS()$new_cases, 
+        PREDS()$preds[, 5, ], 
         future_days = input$future_days, 
         day0 = day0, 
         lag = 0,
@@ -323,7 +323,7 @@ server <- function(input, output) {
     g <- ggplot() +
       geom_line(
         data = df,
-        aes(x=as.numeric(date-day0), y=new_cases),
+        aes(x=as.numeric(date-day0), y=new_cases, linetype='observed'),
         color = 'orchid'
       ) +
       geom_point(
@@ -333,9 +333,8 @@ server <- function(input, output) {
       ) +
       geom_line(
         data = df,
-        aes(x=as.numeric(lag_date-day0), y=new_cases),
-        color = 'orchid',
-        linetype='dashed'
+        aes(x=as.numeric(lag_date-day0), y=new_cases , linetype='lag'),
+        color = 'orchid'
       ) +
       geom_point(
         data = df,
@@ -382,11 +381,16 @@ server <- function(input, output) {
       scale_y_continuous(
         name = 'Count'
       ) +
+      scale_linetype_manual(
+        values = c('lag'='dashed', 'observed'='solid'),
+        labels = c('lag'='Lag-adjusted data', 'observed'= 'Observed data')
+      ) +
       theme_bw() +
       theme(
         legend.position = c(0.01, 0.99), 
         legend.justification = c(0, 1),
-        legend.key.size = unit(1, "line"),
+        legend.key.size = unit(1.5, "line"),
+        legend.text = element_text(size=12),
         legend.title = element_blank(),
         legend.background = element_rect(fill = NA)
       )
@@ -550,9 +554,7 @@ server <- function(input, output) {
         limits = c(0, 0.5),
         name = 'Proportion'
       ) +
-      theme_bw() #+
-      # ggtitle(sprintf('Doubling time: estimate = %.1f +/- %.2f', mean(samples$doubling_time), sd(samples$doubling_time)))
-    
+      theme_bw() 
     
     # Save the file
     outfile <- tempfile(fileext = '.png')

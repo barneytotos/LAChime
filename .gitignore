@@ -1,0 +1,7 @@
+old/
+presentations/
+misc/
+bayesChime/plots/
+data/
+models/*.rds
+.Rhistory

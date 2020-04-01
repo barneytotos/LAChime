@@ -16,8 +16,8 @@ library('lubridate')
 # This comes from the IO
 input = list(
   # Data
-  p = 0.01,
-  lag = 13,
+  p = 0.15,
+  lag = 10,
   
   # Priors
   exposure_mean = 2.5,
@@ -39,31 +39,26 @@ input = list(
   ventilator_relative_rate=0.02,
   
   # Other things
-  future_days = 60
+  future_days = 42
 )
 
 # Load the data
-df = readr::read_csv('data/lax_county_data_26MAR20.csv') %>%
+df <- readr::read_csv('data/lax_county_data_26MAR20.csv') %>% 
+  tail(10) %>%
   mutate(
     date = mdy(day),
-    lag_date = date - days(input$lag),
-    lag_time = as.numeric(lag_date - min(lag_date)) + 1
-  )
-
-df = readr::read_csv('data/la_ems_30MAR20.csv') %>%
-  mutate(
-    date = mdy(day),
+    time = as.numeric(date - min(date)) + 1,
     lag_date = date - days(input$lag),
     lag_time = as.numeric(lag_date - min(lag_date)) + 1
   )
 
 #--------------------------------------------------
-# Fit the model
+# important time parameters
 # -------------------------------------------------
 day0 = min(df$lag_date) - days(1)
 start_social = mdy('3/12/2020')
 full_social = mdy('3/19/2020')
-
+demand_lag = 13
 
 #--------------------------------------------------
 # Fit the model
@@ -89,7 +84,7 @@ model = fit(
 )
 
 
-print(model$fit, pars =c('E0', 'exposure_time', 'recovery_time', 'doubling_time', 'phi'))
+print(model$fit, pars =c('E0', 'exposure_time', 'recovery_time', 'doubling_time', 'sigma'))
 
 # This is the social distancing function
 # It shifts results to the left.
@@ -150,7 +145,7 @@ g = plot_demand(
     los = input$hospital_los, 
     future_days = input$future_days, 
     day0 = day0, 
-    lag = input$lag,
+    lag = demand_lag,
     name='hospital', 
     color='blue'
   ) + ggtitle('Current total hospital admissions')
@@ -164,7 +159,7 @@ g1 = plot_demand(
     los = input$hospital_los, 
     future_days = input$future_days, 
     day0 = day0, 
-    lag = input$lag,
+    lag = demand_lag,
     name='hospital', 
     color='blue'
   ) + ggtitle('Current total hospital admissions')
@@ -179,7 +174,7 @@ g2 = plot_demand(
     los = input$icu_los, 
     future_days = input$future_days, 
     day0 = day0, 
-    lag = input$lag,
+    lag = demand_lag,
     name='ICU', 
     color='firebrick'
   ) + ggtitle('Current total ICU patients')
@@ -190,7 +185,7 @@ g3 = plot_demand(
     los = input$ventilator_los, 
     future_days = input$future_days,
     day0 = day0, 
-    lag = input$lag,
+    lag = demand_lag,
     name='ventilator', 
     color='goldenrod'
   ) + ggtitle('Current total ventilator patients')
