@@ -606,11 +606,11 @@ fit.BayesSEIR = function(model, times, new_cases, p=0.25) {
   model$fit = sampling(
     model$SM, 
     c(stan_data, model$prior),
-    iter=5*10**3 + 5*10**3,
-    warmup=5*10**3,
+    iter=10**3 + 10**3,
+    warmup=10**3,
     chains=1,
     cores=1,
-    thin=5,
+    thin=1,
     control= list(
       'adapt_delta'=0.99
     ),
@@ -714,3 +714,194 @@ forecast_new.BayesSEIR = function(model, preds, rate) {
   prob = phi / (1 + phi) # convert from stan's 'beta' to r's p
   apply(preds[, 5, ], 1, function(x) rnbinom(n=10**3, size=x*rate*phi, prob=prob)) %>% t
 }
+
+
+###########################################################
+## Bayes Linear SEIR class 
+###########################################################
+#' The a Bayesian version of the discrete SEIR model 
+#' A piecewise linear trend is used to estimate social distancing 
+#' The effect starts to take place at time start_time and takes full effect in 7 days
+#' @param N: int, size of the total population
+#' @param exposure_mean: prior mean for the exposure time
+#' @param exposure_sd: prior sd for the exposure time
+#' @param recovery_mean: prior mean for the contagious time
+#' @param recovery_sd: prior mean for the recovery time
+#' @param doubling_mean: prior mean for the doubling time
+#' @param doubling_sd: prior sd for the doubling time
+#' @param intervention_time_lagged: scalar, intervention time adjusted for lag
+#'                           at which social distancing begins
+BayesLinearSEIR = function(
+    N, 
+    exposure_mean,
+    exposure_sd,
+    recovery_mean,
+    recovery_sd,
+    doubling_mean,
+    doubling_sd,
+    intervention_time_lagged,
+    stan_fname='models/bayes_linear_seir.stan'
+  ){
+  
+  prior = list(
+    exposure_mean=exposure_mean,
+    exposure_sd=exposure_sd,
+    recovery_mean=recovery_mean,
+    recovery_sd=recovery_sd,
+    doubling_mean=doubling_mean,
+    doubling_sd=doubling_sd,
+    itl = intervention_time_lagged
+  )
+  
+  # initialize the S3 class
+  SIR(
+    N,
+    I0=NULL,
+    name='bayes',
+    SM = stan_model(stan_fname, auto_write = TRUE),
+    prior = prior,
+    lag = lag,
+    fit=NULL,
+    class=c("BayesLinearSEIR", "BayesSEIR")
+  )
+}
+
+
+#' Runs the stan sampler
+#' @param model: S3 instance of class BayesLinearSEIR
+#' @param times: vector of times indicating the time at which each observation is observed.
+#' @param new_cases: vector of length(times) of new case counts at each t in times
+#' @param p: array of length(times) or 1 with the observation proportion (relative to all new exposures)
+fit.BayesLinearSEIR = function(model, times, new_cases, p) {
+  
+  if (length(p) == 1) p = rep(p, length(times))
+  
+  # Get the stan data
+  stan_data = list(
+    # Meta data
+    T = length(times),
+    N = model$N,
+    last_time = max(times),
+    intervention_time = intervention_time,
+    # Data data
+    times = times,
+    ys = round(new_cases),
+    ps = p
+  )
+  
+  model$fit = sampling(
+    model$SM, 
+    c(stan_data, model$prior),
+    iter=10**3 + 10**3,
+    warmup=10**3,
+    chains=1,
+    cores=1,
+    thin=1,
+    control= list(
+      'adapt_delta'=0.99
+    ),
+    init = list(list(
+      'recovery_time'=model$prior$recovery_mean, 
+      'doubling_time'=model$prior$doubling_mean, 
+      'I0'=model$prior$I0_mean
+    ))
+  )
+  
+  return(model)
+  
+}
+
+
+
+#' Predicts the number of Infected / change in infected at each time points 
+#' @param model: SIR model instance
+#' @param last_time: int, the last time period to predict
+#' @param social_reduction: function; returns the reduction related to interventions in period t . 
+#' @param detection_probability: real in 0, 1 indicating the proportion of infected patients that are observed
+#' @param seed: used to control the randomness in the output
+#' @return T x 2 x sims matrix of I / delta_I values
+predict.BayesLinearSEIR = function(
+    model, 
+    last_time,
+    contact_reduction = function(x) {1}, 
+    seed=sample.int(.Machine$integer.max, 1)
+  ) {
+  
+  set.seed(seed)
+  
+  # Set the initial conditions
+  S = model$N
+  E = extract(model$fit)$E0
+  I = extract(model$fit)$E0 * extract(model$fit)$alpha
+  R = 0
+  NN = S + E + I + R
+  
+  #' Compute the key parameters
+  alpha = extract(model$fit)$alpha
+  gamma = extract(model$fit)$gamma
+  beta = extract(model$fit)$beta
+  
+  #' Get the social distancing stuff
+  social = extract(model$fit)$social
+  itl = model$prior$itl
+  
+  #' Intialize the storage
+  preds = array(dim=c(last_time, 6, 10**3))
+  
+  # Do the numerical integration
+  for (t in -14:last_time){
+    
+    # Compute the differences
+    delta_exp = beta*S*I/model$N*contact_reduction(t)
+    delta_inf = alpha * E
+    delta_rec = gamma*I
+    
+    if (t <= itl) {
+      delta_exp = delta_exp*1
+    }
+    else if (t <= itl + 7) {
+      delta_exp = delta_exp * (1 - (1-social) * (t-itl)/7)
+    } 
+    else {
+      delta_exp = delta_exp * social;
+    }
+    
+    # Update the counts
+    S = S - delta_exp
+    E = E + delta_exp - delta_inf
+    I = I + delta_inf - delta_rec
+    R = R + delta_rec
+    
+    # Some error handling that presumably comes 
+    # From the discretezation
+    
+    # Handle the cases where things dip below 0
+    S[S<0]=0
+    E[E<0]=0
+    I[I<0]=0
+    R[R<0]=0
+    
+    # Make sure the still scale to N
+    scale = model$N / (S+E+I+R)
+    S = S * scale
+    E = E * scale
+    I = I * scale
+    R = R * scale
+    
+    # Add the noise
+    if (t>0){
+      preds[t, 1, ] = S
+      preds[t, 2, ] = E
+      preds[t, 3, ] = I
+      preds[t, 4, ] = R
+      preds[t, 5, ] = delta_exp
+      preds[t, 6, ] = delta_inf
+    }
+  }
+  
+  colnames(preds) = c('S', 'E', 'I', 'R', 'delta_E', 'delta_I')
+  return(preds)
+}
+
+
+
