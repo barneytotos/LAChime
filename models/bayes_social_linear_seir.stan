@@ -137,8 +137,8 @@ transformed parameters{
   
   // Lame looping to add the social distanceing
   for (t in 1:(last_time+90)){
-    if (t <= intervention_time) social_distance[t] = 1;
-    else if (t <= intervention_time + 6) social_distance[t] = 1 - (1-social) * (t-intervention_time)/7;
+    if (t <= intervention_time-6) social_distance[t] = 1;
+    else if (t <= intervention_time + 6 + 6) social_distance[t] = 1 - (1-social) * inv_logit((t-intervention_time-3.5)/1.5);
     else social_distance[t] = social;
   }
   

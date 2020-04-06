@@ -42,6 +42,9 @@ forecast_admissions_nb = function(preds, rate, phi){
   apply(preds[-1, 4, ], 1, function(x) rnbinom(n=length(phi), mu=x*rate+1e-6, size=phi)) %>% t
 }
 
+
+
+
 #' Uses the chime rate/LOS model to forcast total demand for multiple simulations
 #' @param admits: T x S (Day / Sims) matrix of new admisions, output of forecast_admissions_v
 #' @param length_of_stay: how many days someone stays in the ICU

@@ -162,8 +162,8 @@ model {
   
   // DPH parameters
   sigma ~ normal(1, 1);
-  social ~ beta(2, 2);
-  intercept ~ normal(3.5, 2);
+  social ~ beta(1, 1);
+  intercept ~ normal(3.5, 5);
   
 
   // Likelihood
@@ -172,5 +172,8 @@ model {
 
 generated quantities {
   vector<lower=0>[last_time+90] projected_newly_infected;
+  vector<lower=0>[last_time+90] sampled_newly_infected;
   projected_newly_infected =  discrete_seir(N, E0, gamma, beta, alpha, last_time+90, social_distance, step_size);
+  
+  for (t in 1:(last_time+90)) sampled_newly_infected[t] = neg_binomial_rng(projected_newly_infected[t] * phi * ps[1], phi); // this can be wrong...
 }

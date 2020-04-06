@@ -1,7 +1,6 @@
 #----------------------------
 # This is SEIR model with social distancing (no regression)
-# The social distancing is done using a linear decreas
-# The decrease begins on 13 Mar 20 and takes full effect by 19 Mar 20
+# The social distancing is done using a sigmoidal model
 #--------------------------
 
 source('source/setup.R')
@@ -18,9 +17,9 @@ input = list(
 # Load the frankenstein data
 new_case_data = read.csv('data/franken_data.csv') %>%
   mutate(
-    date = ymd(date),
-    lag_date = ymd(date) - days(input$lag)
-  )
+    date = mdy(date),
+    lag_date = date - days(input$lag)
+  ) 
 
 # Add time
 day0 =  min(new_case_data$date) - days(input$lag+1)
@@ -70,6 +69,7 @@ inits = function(chain_id) {
   )
 }
 
+# Run the model
 fit = sampling(
   SM,
   stan_data,
@@ -81,7 +81,7 @@ fit = sampling(
   control = list('adapt_delta'=0.99),
   init = inits
 )
-
+samples = extract(fit)
 
 print(
   fit, 
@@ -93,10 +93,16 @@ print(
   pars=c('social', 'intercept', 'slope')
 )
 
+#------------------------------------
+# Plot new cases
+#-----------------------------------
+FUTURE = 21
 
 new_cases= extract(fit)$projected_newly_infected * input$p
 out = apply(new_cases, 2, quantile, probs = c(0.025, 0.5, 0.975)) %>% t
 colnames(out) = c('Lower', 'Estimate', 'Upper')
+
+
 plot_data = as.data.frame(out) %>%
   mutate(
     time = 1:n(),
@@ -104,7 +110,126 @@ plot_data = as.data.frame(out) %>%
   ) %>%
   filter(
     day >= day0,
-    day <= today() + days(21) 
+    day <= today() + days(FUTURE) 
+  )
+
+pred_cases = samples$sampled_newly_infected 
+out = apply(pred_cases, 2, quantile, probs = c(0.025, 0.975)) %>% t
+plot_data$low_low = out[1:nrow(plot_data), 1]
+plot_data$hi_hi = out[1:nrow(plot_data), 2]
+
+
+
+# foo = function(s) {
+#  data.frame(
+#    y = new_cases[s, ], 
+#    day = day0 + days(1:ncol(new_cases)+input$lag),
+#    sim = s
+#  )
+#}
+#
+# inds = sample(1:1000, 25, replace=TRUE)
+# sample_data = map(inds, foo) %>% bind_rows() %>% filter(day<= today() + days(FUTURE))
+
+
+ggplot() +
+  geom_line(
+    data = plot_data ,
+    aes(x=day, y=pmin(Estimate, 800)),
+    size=1
+  ) +
+  geom_ribbon(
+    data = plot_data ,
+    aes(x=day, ymin = Lower, ymax=pmin(Upper, 800)),
+    fill='orchid',
+    alpha = 0.2,
+    size = 4
+  ) +
+  #geom_ribbon(
+  #  data = plot_data ,
+  #  aes(x=day, ymin = low_low, ymax=Lower),
+  #  fill='dodgerblue',
+  #  alpha = 0.2,
+  #  size = 4
+  #) +
+  #geom_ribbon(
+  #  data = plot_data ,
+  #  aes(x=day, ymin = Upper, ymax=hi_hi),
+  #  fill='dodgerblue',
+  #  alpha = 0.2,
+  #  size = 4
+  #) +
+  # geom_line(
+  #  data = sample_data,
+  #  aes(x=day, y=y, group=sim),
+  #  alpha=0.25
+  # ) +
+  geom_point(
+    data = new_case_data,
+    aes(x=date, y=new_cases)
+  ) +
+  geom_vline(
+    xintercept = today(),
+    color = 'dodgerblue',
+    linetype = 'dashed',
+    size=1
+  ) +
+  # geom_vline(
+  #  xintercept = mdy('3/12/2020') + days(input$lag),
+  #  color = 'firebrick',
+  #  linetype = 'dashed',
+  #  size=1
+  # ) +
+  # geom_vline(
+  #  xintercept = mdy('3/19/2020') + days(input$lag),
+  #  color = 'firebrick',
+  #  linetype = 'dashed',
+  #  size=1
+  #) +
+  geom_vline(
+    xintercept = today(),
+    color = 'dodgerblue',
+    linetype = 'dashed'
+  ) +
+  theme_bw() +
+  scale_y_continuous(
+    name = c('Number of newly confirmed cases'),
+    expand = c(0, 0),
+    limits = c(0, 600),
+    breaks = seq(0, 600, 50)
+  ) +
+  scale_x_date(
+    name = '',
+    breaks = today() + days(seq(-28, 28, 7)),
+    date_labels = "%m-%d"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust=1)
+  )
+ggsave('plots/new_cases.png', height = 4.5, width=7.5)
+
+
+#------------------------------------
+# Plot social distancing
+#------------------------------------
+FUTURE = input$lag
+ts = seq(1:(stan_data$last_time + FUTURE))
+expit = function(x) 1/ (1+exp(-x))
+foo = function(x) expit((x - stan_data$intervention_time -samples$intercept)/samples$slope) * (1-samples$social)
+socials = map(ts, foo) %>% do.call(cbind, .)
+
+out = apply(socials, 2, quantile, probs = c(0.025, 0.5, 0.975)) %>% t
+colnames(out) = c('Lower', 'Estimate', 'Upper')
+
+
+plot_data = as.data.frame(out) %>%
+  mutate(
+    time = 1:n(),
+    day = day0 + days(time) 
+  ) %>%
+  filter(
+    day >= day0,
+    day <= today() + days(FUTURE-input$lag)
   )
 
 
@@ -121,48 +246,242 @@ ggplot() +
     alpha = 0.2,
     size = 4
   ) +
-  geom_point(
-    data = new_case_data,
-    aes(x=date, y=new_cases)
-  ) +
   geom_vline(
     xintercept = today(),
     color = 'dodgerblue',
-    linetype = 'dashed'
+    linetype = 'dashed',
+    size=1
   ) +
   geom_vline(
-    xintercept = mdy('3/12/2020') + days(input$lag),
+    xintercept = mdy('3/12/2020'),
     color = 'firebrick',
-    linetype = 'dashed'
+    linetype = 'dashed',
+    size=1
+  ) +
+  geom_text(
+    data = data.frame(
+      x = mdy('3/12/2020'),
+      y = 0.925,
+      label = 'School\nclosures'
+    ),
+    aes(x=x, y=y, label=label),
+    hjust=0,
+    nudge_x = -4
+  ) +
+  geom_text(
+    data = data.frame(
+      x = mdy('3/19/2020'),
+      y = 0.925,
+      label = 'Safer-at-home\nordinance'
+    ),
+    aes(x=x, y=y, label=label),
+    hjust=0,
+    nudge_x =1
   ) +
   geom_vline(
-    xintercept = mdy('3/19/2020') + days(input$lag),
+    xintercept = mdy('3/19/2020'),
     color = 'firebrick',
-    linetype = 'dashed'
+    linetype = 'dashed',
+    size=1
   ) +
-  geom_vline(
-    xintercept = today(),
-    color = 'dodgerblue',
-    linetype = 'dashed'
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.1),
+    name = 'Estimated social distancing (relative reduction)',
+    expand = c(0, 0)
   ) +
-  geom_vline(
-    xintercept = day0 + days(stan_data$intervention_time+input$lag),
-    color = 'orchid',
-    linetype = 'dashed'
+  scale_x_date(
+    name = '',
+    limits = c(today()-days(35), today()),
+    breaks = today() + days(seq(-35, 0, 7)),
+    date_labels = "%m-%d"
   ) +
   theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust=1)
+  )
+ggsave('presentations/07APR20/social_distancing.png', height = 4.5,  width=7.5)
+
+
+#------------------------------------
+# Plot RT
+#------------------------------------
+FUTURE = input$lag+1
+ts = seq(1:(stan_data$last_time + FUTURE))
+expit = function(x) 1/ (1+exp(-x))
+foo = function(x) (1 - expit((x - stan_data$intervention_time -samples$intercept)/samples$slope) * (1-samples$social))*samples$beta/samples$gamma
+RT = map(ts, foo) %>% do.call(cbind, .)
+
+
+out = apply(RT, 2, quantile, probs = c(0.025, 0.5, 0.975)) %>% t
+colnames(out) = c('Lower', 'Estimate', 'Upper')
+
+
+plot_data = as.data.frame(out) %>%
+  mutate(
+    time = 1:n(),
+    day = day0 + days(time) 
+  ) %>%
+  filter(
+    day >= day0,
+    day <= today() + days(FUTURE-input$lag)
+  )
+
+ggplot() +
+  geom_line(
+    data = plot_data ,
+    aes(x=day, y=Estimate),
+    size=1
+  ) +
+  geom_ribbon(
+    data = plot_data ,
+    aes(x=day, ymin = Lower, ymax=Upper),
+    fill='orchid',
+    alpha = 0.2,
+    size = 4
+  ) +
+  geom_vline(
+    xintercept = today(),
+    color = 'dodgerblue',
+    linetype = 'dashed',
+    size=1
+  ) +
+  geom_vline(
+    xintercept = mdy('3/12/2020'),
+    color = 'firebrick',
+    linetype = 'dashed',
+    size=1
+  ) +
+  geom_text(
+    data = data.frame(
+      x = mdy('3/12/2020'),
+      y = 0.3,
+      label = 'School\nclosures'
+    ),
+    aes(x=x, y=y, label=label),
+    hjust=0,
+    nudge_x = -4
+  ) +
+  geom_text(
+    data = data.frame(
+      x = mdy('3/19/2020'),
+      y = 0.3,
+      label = 'Safer-at-home\nordinance'
+    ),
+    aes(x=x, y=y, label=label),
+    hjust=0,
+    nudge_x =1
+  ) +
+  geom_vline(
+    xintercept = mdy('3/19/2020'),
+    color = 'firebrick',
+    linetype = 'dashed',
+    size=1
+  ) +
   scale_y_continuous(
-    #limits = c(0, 500),
-    name = c('# of confirmed cases'),
-    # breaks = seq(0, 5000, 500),
-    #expand = c(0, 0)
-  ) 
-saveRDS(fit, 'sigmoidal_fit.rds')
+    limits = c(0, 5),
+    breaks = seq(0, 5, 0.5),
+    name = latex2exp::TeX('Estimated $R_T$'),
+    expand = c(0, 0)
+  ) +
+  scale_x_date(
+    name = '',
+    expand = c(0, 0),
+    limits = c(today()-days(35), today() + days(1)),
+    breaks = today() + days(seq(-35, 0, 7)),
+    date_labels = "%m-%d"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust=1)
+  )
+ggsave('presentations/07APR20/rt.png', height = 4.5,  width=7.5)
 
-ggsave('sigmoidal.png', height = 5, width = 6)
+
+#------------------------------------
+# Plot Social distance aparmeters
+#------------------------------------
+g1 = ggplot(
+    data= data.frame(width = 4/samples$slope),
+    aes(x=width)
+  ) +
+  geom_histogram(
+    breaks = seq(0, 8, 0.25)
+  ) +
+  scale_x_continuous(
+    name = 'Width of the social distancing window',
+    limits = c(0, 8)
+  ) +
+  theme_bw()
 
 
 
+g2 = ggplot(
+    data= data.frame(x = stan_data$intervention_time + samples$intercept +3/samples$slope),
+    aes(x=x)
+  ) +
+  geom_histogram(
+    breaks = seq(20, 30, 1)
+  ) +
+  scale_x_continuous(
+    breaks = seq(20, 30, 1),
+    labels = (day0 + days(seq(20, 30, 1))) %>% format("%m-%d"),
+    name = 'First day social distancing > 95%'
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust=1)
+  )
 
+g3 = ggplot(
+    data=data.frame(x = 1- samples$social),
+    aes(x=x)
+  ) +
+  geom_histogram(
+    breaks =seq(0, 1, 0.05)
+  ) +
+  scale_x_continuous(
+    name = 'Maximum social distancing (relative)',
+    expand = c(0, 0)
+  ) +
+  theme_bw()
 
+g = g1 | g2 | g3
+ggsave('plots/social_params.png', height = 8,  width=13)
 
+#------------------------------------
+# Plot model parameters
+#------------------------------------
+
+g1 = ggplot(
+    data= data.frame(x = samples$doubling_time),
+    aes(x=x)
+  ) +
+  geom_histogram() +
+  scale_x_continuous(
+    name = 'Doubling time'
+  ) +
+  theme_bw() 
+
+g2 = ggplot(
+    data= data.frame(x = samples$recovery_time),
+    aes(x=x)
+  ) +
+  geom_histogram() +
+  scale_x_continuous(
+    name = 'Contagious time'
+  ) +
+  theme_bw() 
+
+g3 = ggplot(
+    data= data.frame(x = samples$recovery_time),
+    aes(x=x)
+  ) +
+  geom_histogram() +
+  scale_x_continuous(
+    name = 'Recovery time'
+  ) +
+  theme_bw() 
+
+g = g1 | g2 | g3
+ggsave('plots/seir_params.png', height = 8,  width=13)
