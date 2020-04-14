@@ -51,7 +51,10 @@ stan_data = list(
   recovery_sd = 2.55,
   doubling_mean = 4.5,
   doubling_sd = 1,
-  step_size = 12
+  step_size = 12,
+  # Future stuff,
+  future_intervention = as.numeric(today() - day0),
+  future_social = 0.66
 )
 
 # Model initilization
@@ -81,6 +84,7 @@ fit = sampling(
   control = list('adapt_delta'=0.99),
   init = inits
 )
+
 samples = extract(fit)
 
 print(
@@ -93,10 +97,14 @@ print(
   pars=c('social', 'intercept', 'slope')
 )
 
+dur = sprintf('plots/fit_%s', max(new_case_data$date))
+# dur = file.path('presentations', '07APR20')
+dir.create(dur, showWarnings = FALSE)
+
 #------------------------------------
 # Plot new cases
 #-----------------------------------
-FUTURE = 21
+FUTURE = 21 
 
 new_cases= extract(fit)$projected_newly_infected * input$p
 out = apply(new_cases, 2, quantile, probs = c(0.025, 0.5, 0.975)) %>% t
@@ -118,74 +126,35 @@ out = apply(pred_cases, 2, quantile, probs = c(0.025, 0.975)) %>% t
 plot_data$low_low = out[1:nrow(plot_data), 1]
 plot_data$hi_hi = out[1:nrow(plot_data), 2]
 
-
-
-# foo = function(s) {
-#  data.frame(
-#    y = new_cases[s, ], 
-#    day = day0 + days(1:ncol(new_cases)+input$lag),
-#    sim = s
-#  )
-#}
-#
-# inds = sample(1:1000, 25, replace=TRUE)
-# sample_data = map(inds, foo) %>% bind_rows() %>% filter(day<= today() + days(FUTURE))
-
-
 ggplot() +
   geom_line(
     data = plot_data ,
-    aes(x=day, y=pmin(Estimate, 800)),
+    aes(x=day, y=Estimate),
     size=1
   ) +
   geom_ribbon(
     data = plot_data ,
-    aes(x=day, ymin = Lower, ymax=pmin(Upper, 800)),
+    aes(x=day, ymin = Lower, ymax=Upper),
     fill='orchid',
     alpha = 0.2,
     size = 4
   ) +
-  #geom_ribbon(
-  #  data = plot_data ,
-  #  aes(x=day, ymin = low_low, ymax=Lower),
-  #  fill='dodgerblue',
-  #  alpha = 0.2,
-  #  size = 4
-  #) +
-  #geom_ribbon(
-  #  data = plot_data ,
-  #  aes(x=day, ymin = Upper, ymax=hi_hi),
-  #  fill='dodgerblue',
-  #  alpha = 0.2,
-  #  size = 4
-  #) +
-  # geom_line(
-  #  data = sample_data,
-  #  aes(x=day, y=y, group=sim),
-  #  alpha=0.25
-  # ) +
   geom_point(
     data = new_case_data,
     aes(x=date, y=new_cases)
   ) +
   geom_vline(
-    xintercept = today(),
-    color = 'dodgerblue',
+    xintercept = mdy('3/12/2020') + days(input$lag),
+    color = 'firebrick',
     linetype = 'dashed',
     size=1
   ) +
-  # geom_vline(
-  #  xintercept = mdy('3/12/2020') + days(input$lag),
-  #  color = 'firebrick',
-  #  linetype = 'dashed',
-  #  size=1
-  # ) +
-  # geom_vline(
-  #  xintercept = mdy('3/19/2020') + days(input$lag),
-  #  color = 'firebrick',
-  #  linetype = 'dashed',
-  #  size=1
-  #) +
+  geom_vline(
+    xintercept = mdy('3/19/2020') + days(input$lag),
+    color = 'firebrick',
+    linetype = 'dashed',
+    size=1
+  ) +
   geom_vline(
     xintercept = today(),
     color = 'dodgerblue',
@@ -193,21 +162,21 @@ ggplot() +
   ) +
   theme_bw() +
   scale_y_continuous(
-    name = c('Number of newly confirmed cases'),
+    name = c('Number of new cases'),
     expand = c(0, 0),
-    limits = c(0, 600),
-    breaks = seq(0, 600, 50)
+    limits = c(0, 1000),
+    breaks = seq(0, 1000, 100)
   ) +
   scale_x_date(
     name = '',
-    breaks = today() + days(seq(-28, 28, 7)),
+    breaks = today() + days(seq(-28, 28, 7)+1),
     date_labels = "%m-%d"
   ) +
   theme(
     axis.text.x = element_text(angle = 45, hjust=1)
   )
-ggsave('plots/new_cases.png', height = 4.5, width=7.5)
 
+ggsave(file.path(dur, 'new_cases.png'), height = 4.5, width=7.5)
 
 #------------------------------------
 # Plot social distancing
@@ -300,7 +269,7 @@ ggplot() +
   theme(
     axis.text.x = element_text(angle = 45, hjust=1)
   )
-ggsave('presentations/07APR20/social_distancing.png', height = 4.5,  width=7.5)
+ggsave(file.path(dur, 'social_distancing.png'), height = 4.5,  width=7.5)
 
 
 #------------------------------------
@@ -392,10 +361,11 @@ ggplot() +
     date_labels = "%m-%d"
   ) +
   theme_bw() +
+  
   theme(
     axis.text.x = element_text(angle = 45, hjust=1)
-  )
-ggsave('presentations/07APR20/rt.png', height = 4.5,  width=7.5)
+  ) 
+ggsave(file.path(dur, 'rt.png'), height = 4.5,  width=7.5)
 
 
 #------------------------------------
@@ -447,7 +417,7 @@ g3 = ggplot(
   theme_bw()
 
 g = g1 | g2 | g3
-ggsave('plots/social_params.png', height = 8,  width=13)
+ggsave(file.path(dur, 'social_params.png'), height = 8,  width=13)
 
 #------------------------------------
 # Plot model parameters
@@ -484,4 +454,4 @@ g3 = ggplot(
   theme_bw() 
 
 g = g1 | g2 | g3
-ggsave('plots/seir_params.png', height = 8,  width=13)
+ggsave(file.path(dur, 'seir_params.png'), height = 8,  width=13)

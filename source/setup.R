@@ -30,7 +30,10 @@ packages = c(
 packages = c(
   'dplyr',
   'purrr',
-  'ggplot2'
+  'ggplot2',
+  'rstan',
+  'lubridate',
+  'patchwork'
 )
 ._ = lapply(packages, library, character.only=TRUE)
 
