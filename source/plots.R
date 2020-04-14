@@ -167,21 +167,24 @@ plot_demand = function(admissions, los, future_days, day0, lag=0, name='', color
 }
 
 
+
 #' Plots the new admissions/census for a service
-#' @param preds: array, output of predict.model
-#' @param rate: vector, the relative prevalence of the demand
+#' @param census: samples of (predictive) census
 #' @param los: int, length of stay
-#' @param input: the input from ui
+#' @param future_days: int, number of days to project
+#' @param day0: lubridate s3 object indicating the 'day' for index 0
+#' @param today: lubridate s3 object indicating today's date
+#' @param lag: int, demand lag (used to shift projections)
 #' @param color: string, color to plot
 #' @return ggplot of the new admissions/census for a single service.
-plot_demand2 = function(census, los, future_days, day0, lag=0, name='', color='blue'){
+plot_demand_census = function(census, los, future_days, day0, today, lag=0, name='', color='blue'){
   
   # Set the times scale
   ts = 1:dim(census)[1] + lag
   
-  first_day = (today() - days(14) + 1) - day0 
+  first_day = (today - days(14)) - day0 
   xmin = as.numeric(first_day)
-  xmax = as.numeric((today()+1 + days(future_days)) - day0)
+  xmax = as.numeric((today + days(future_days)) - day0)
   x_breaks = seq(xmin, xmax, 7)
   
   # Census uncertainty
@@ -191,102 +194,6 @@ plot_demand2 = function(census, los, future_days, day0, lag=0, name='', color='b
     middle = apply(census, 1, quantile, probs=0.5),
     upper  = apply(census, 1, quantile, probs=0.975)
   )
-  
-  # Census samples
-  wrapper = function(s) data.frame(sim=s, ts = ts, ys=census[,s]) 
-  inds = sample(1000, 25, replace = FALSE)
-  census_sims = map(inds, wrapper) %>% bind_rows()
-  
-  # Setup the y axis
-  ymax = census_df %>% 
-    filter(ts <= xmax) %>% 
-    pull(upper) %>% 
-    max() %>% 
-    smart_max()
-  
-  # Plot of census
-  ggplot()+
-    geom_ribbon(
-      data = census_df %>% filter(ts<=xmax, ts>=xmin),
-      aes(ymin=lower, ymax=upper, x=ts), 
-      alpha=0.1,
-      fill=color,
-      show.legend = FALSE
-    ) +
-    #geom_line(
-    #  data = census_sims %>% filter(ts<=xmax, ts>=xmin),
-    #  aes(y=ys, x=ts, group=sim), 
-    #  alpha = 0.1,
-    #  show.legend = FALSE
-    #) +
-    geom_line(
-      data = census_df %>% filter(ts > los) %>% filter(ts<=xmax, ts>=xmin),
-      aes(y=middle, x=ts), 
-      show.legend = FALSE
-    ) +
-    geom_vline(xintercept = today()-day0, color='black', linetype='dashed') + 
-    theme_bw() +
-    scale_x_continuous(
-      name = NULL,
-      limits = c(xmin, xmax),
-      breaks = seq(xmin, xmax, 7),
-      labels = (day0 + days(x_breaks)) %>% format("%m-%d")
-    ) +
-    # TODO dynamic scaling
-    scale_y_continuous(
-      limits = c(0, ymax),
-      breaks = seq(0, ymax, length.out = 11),
-      name = sprintf('%s', name)
-    )  +
-    theme(
-      axis.text.x = element_text(angle = 45, hjust=1)
-    )
-}
-
-
-#' Plots the new admissions/census for a service
-#' @param preds: array, output of predict.model
-#' @param rate: vector, the relative prevalence of the demand
-#' @param los: int, length of stay
-#' @param input: the input from ui
-#' @param color: string, color to plot
-#' @return ggplot of the new admissions/census for a single service.
-plot_demand3 = function(census, los, future_days, day0, lag=0, name='', color='blue'){
-  
-  # Set the times scale
-  ts = 1:dim(census)[1] + lag
-  
-  first_day = (mdy('4/10/2020') - days(14)) - day0 
-  xmin = as.numeric(first_day)
-  xmax = as.numeric((mdy('4/10/2020') + days(future_days)) - day0)
-  x_breaks = seq(xmin, xmax, 7)
-  
-  # Census uncertainty
-  census_df = data.frame(
-    ts = ts,
-    lower  = apply(census, 1, quantile, probs=0.025),
-    middle = apply(census, 1, quantile, probs=0.5),
-    upper  = apply(census, 1, quantile, probs=0.975)
-  )
-  
-  census_df %>% filter(
-      ts<=xmax, 
-      ts>=xmin
-    ) %>%
-    mutate(
-      date = mdy('3/27/2020') + days(1:n()-1),
-      lower = round(lower),
-      estimate = round(middle),
-      upper = round(upper)
-    ) %>%
-    select(
-      date, 
-      estimate,
-      lower,
-      upper
-    ) %>%
-    write.csv('vent_census.csv', row.names = FALSE)
-    
   
   # Setup the y axis
   ymax = census_df %>% 
@@ -309,6 +216,11 @@ plot_demand3 = function(census, los, future_days, day0, lag=0, name='', color='b
       aes(y=middle, x=ts), 
       show.legend = FALSE
     ) +
+    geom_vline(
+      xintercept = as.numeric(today-day0),
+      color = 'dodgerblue',
+      linetype = 'dashed'
+    ) +
     theme_bw() +
     scale_x_continuous(
       name = NULL,
@@ -326,7 +238,6 @@ plot_demand3 = function(census, los, future_days, day0, lag=0, name='', color='b
       axis.text.x = element_text(angle = 45, hjust=1)
     )
 }
-
 
 
 census_table = function(admissions, los, day0, lag, thresholds){

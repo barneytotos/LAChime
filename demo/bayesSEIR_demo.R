@@ -5,13 +5,11 @@
 # -------------------------------------------------
 
 source('source/setup.R')
+source('source/forecast.R')
 source('source/models.R')
 source('source/utils.R')
-source('source/forecast.R')
 source('source/plots.R')
-library('rstan')
-library('patchwork')
-library('lubridate')
+
 
 # This comes from the IO
 input = list(
@@ -165,9 +163,6 @@ g1 = plot_demand(
   ) + ggtitle('Current total hospital admissions')
 
 
-
-
-
 # Plot new admissions
 g2 = plot_demand(
     icu_admissions, 
@@ -191,3 +186,4 @@ g3 = plot_demand(
   ) + ggtitle('Current total ventilator patients')
 
 g1 | g2 | g3
+

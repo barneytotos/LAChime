@@ -97,12 +97,6 @@ load_ems_data = function(dur='data/ems/', start_date = mdy('3/28/2020'), stop_da
 }
 
 
-#' Adds sampling noise to
-forecast_new = function(new_cases, phi, proportion){
-  prob = phi / (1 + phi) # convert from stan's 'beta' to r's p
-  apply(new_cases, 2, function(x) rnbinom(n=10**3, size=x*proportion*phi, prob=prob)) %>% t
-}
-
 
 #' Uses the chime rate/LOS model to forcast total demand for multiple simulations
 #' @param admits: T x S (Day / Sims) matrix of new admisions, output of forecast_admissions_v
@@ -114,83 +108,5 @@ forecast_census_v = function(admits, length_of_stay){
   
   admit_out = rbind(zeros, head(admit_in, -length_of_stay))
   admit_in - admit_out
-}
-
-
-#' Plots the new admissions/census for a service
-#' @param census: samples of (predictive) census
-#' @param los: int, length of stay
-#' @param future_days: int, number of days to project
-#' @param day0: lubridate s3 object indicating the 'day' for index 0
-#' @param today: lubridate s3 object indicating today's date
-#' @param lag: int, demand lag (used to shift projections)
-#' @param color: string, color to plot
-#' @return ggplot of the new admissions/census for a single service.
-plot_demand = function(census, los, future_days, day0, today, lag=0, name='', color='blue'){
-  
-  # Set the times scale
-  ts = 1:dim(census)[1] + lag
-  
-  first_day = (today - days(14)) - day0 
-  xmin = as.numeric(first_day)
-  xmax = as.numeric((today + days(future_days)) - day0)
-  x_breaks = seq(xmin, xmax, 7)
-  
-  # Census uncertainty
-  census_df = data.frame(
-    ts = ts,
-    lower  = apply(census, 1, quantile, probs=0.025),
-    middle = apply(census, 1, quantile, probs=0.5),
-    upper  = apply(census, 1, quantile, probs=0.975)
-  )
-  
-  # Setup the y axis
-  ymax = census_df %>% 
-    filter(ts <= xmax) %>% 
-    pull(upper) %>% 
-    max() %>% 
-    smart_max()
-  
-  # Plot of census
-  ggplot()+
-    geom_ribbon(
-      data = census_df %>% filter(ts<=xmax, ts>=xmin),
-      aes(ymin=lower, ymax=upper, x=ts), 
-      alpha=0.1,
-      fill=color,
-      show.legend = FALSE
-    ) +
-    geom_line(
-      data = census_df %>% filter(ts > los) %>% filter(ts<=xmax, ts>=xmin),
-      aes(y=middle, x=ts), 
-      show.legend = FALSE
-    ) +
-    geom_vline(
-      xintercept = as.numeric(today-day0),
-      color = 'dodgerblue',
-      linetype = 'dashed'
-    ) +
-    theme_bw() +
-    scale_x_continuous(
-      name = NULL,
-      limits = c(xmin, xmax),
-      breaks = seq(xmin, xmax, 7),
-      labels = (day0 + days(x_breaks)) %>% format("%m-%d")
-    ) +
-    # TODO dynamic scaling
-    scale_y_continuous(
-      limits = c(0, ymax),
-      breaks = seq(0, ymax, length.out = 11),
-      name = sprintf('%s', name)
-    )  +
-    theme(
-      axis.text.x = element_text(angle = 45, hjust=1)
-    )
-}
-
-
-smart_max = function(ymax){
-  magnitude = floor(log10(ymax*1.2))
-  ceiling(ymax*1.2 / 10**magnitude)*10**magnitude
 }
 
